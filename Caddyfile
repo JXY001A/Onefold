@@ -1,0 +1,7 @@
+# 本地测试用 :80；生产换成你的备案域名（Caddy 自动 HTTPS）
+:80 {
+    encode zstd gzip
+    reverse_proxy app:8000 {
+        flush_interval -1
+    }
+}

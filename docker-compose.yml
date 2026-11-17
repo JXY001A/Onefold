@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    image: ${ONEFOLD_IMAGE:-onefold}:${TAG:-latest}
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: sqlite:////data/onefold.db
+      DATA_DIR: /data
+    expose: ["8000"]
+    ports: ["127.0.0.1:8000:8000"]
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 30s
+      retries: 3
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on: [app]
+
+volumes:
+  caddy_data: {}
