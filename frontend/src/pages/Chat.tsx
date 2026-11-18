@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ensureSession } from "../lib/session";
 import { streamChat } from "../lib/sse";
 
 type ToolRun = {
@@ -21,6 +22,22 @@ export default function Chat() {
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [ctrl, setCtrl] = useState<AbortController | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    // 先确保请求有身份（JWT 或 guest_id），否则聊天接口会返回 401
+    let cancelled = false;
+    ensureSession()
+      .then(() => {
+        if (!cancelled) setSessionReady(true);
+      })
+      .catch((e) => {
+        if (!cancelled) setError((e as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const patchLast = (fn: (m: Msg) => Msg) =>
     setMessages((prev) => {
@@ -33,7 +50,7 @@ export default function Chat() {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || running) return;
+    if (!text || running || !sessionReady) return;
 
     setInput("");
     setError(null);
@@ -50,7 +67,7 @@ export default function Chat() {
 
     try {
       for await (const ev of streamChat(
-        { message: text, user_id: "demo" },
+        { message: text },
         { signal: controller.signal },
       )) {
         if (ev.type === "queue") {
@@ -128,9 +145,9 @@ export default function Chat() {
               send();
             }
           }}
-          disabled={running}
-          placeholder="输入问题…"
-          className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500"
+          disabled={running || !sessionReady}
+          placeholder={sessionReady ? "输入问题…" : "正在建立访客会话…"}
+          className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 disabled:bg-slate-50"
         />
         {running ? (
           <button
@@ -142,7 +159,8 @@ export default function Chat() {
         ) : (
           <button
             onClick={send}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+            disabled={!sessionReady}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:bg-slate-400"
           >
             发送
           </button>

@@ -36,6 +36,19 @@ class AccessRequest(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class GuestSession(Base):
+    """匿名访客身份：每个浏览器一条，24 小时后失效。"""
+
+    __tablename__ = "guest_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ip: Mapped[str | None] = mapped_column(String(64), index=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class Run(Base):
     __tablename__ = "runs"
 

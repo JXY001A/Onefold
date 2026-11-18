@@ -1,42 +1,127 @@
-"""聊天 SSE（骨架）：排队 → Runtime → 事件流。"""
+"""聊天 SSE 接口（骨架）。
+
+整体流程：
+    请求进入 → 获取身份锁（同一用户/访客串行）
+            → 带超时地获取全局信号量（跨用户总并发限制，排队超时则返回错误事件）
+            → 调用 AgentRuntime 执行 → 以 SSE 事件流逐步返回结果。
+
+并发控制采用「身份锁 + 全局信号量」双层结构：
+    - 身份锁：登录用户按 user_id、访客按 guest_id 各一把，同一身份串行；
+    - 全局信号量：限制整个服务同时执行的 AgentRuntime 任务总数。
+"""
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..agent.runtime import AgentRuntime
 from ..config import settings
+from .deps import Principal, current_principal
 
 router = APIRouter()
 
+# 全局信号量：限制同时执行 AgentRuntime 的任务总数，上限取自配置 global_concurrency。
+# 为什么需要：
+#   每次 AgentRuntime 执行都要调用 LLM API，消耗 token、内存和上游速率配额，
+#   若请求洪峰无节制地并发执行，会打爆后端进程甚至触发上游限流。
+# 作用范围：
+#   信号量是进程级对象，只限制当前进程内的并发；
+#   若用多个 worker 进程部署（如 uvicorn --workers N），每个进程各有一把，
+#   总并发实际为 N × global_concurrency，配置时需注意。
 GLOBAL_SEM = asyncio.Semaphore(settings.global_concurrency)
-_USER_LOCKS: dict[str, asyncio.Lock] = {}
+
+# 每个身份一把锁：登录用户按 user_id，访客按 guest_id。
+# 引用计数把等待中的请求也算进去，最后一个离开时才删除，避免锁被提前清掉。
+_LOCKS: dict[str, tuple[asyncio.Lock, int]] = {}
+
+# 把「含单个 yield 的异步生成器」变成 async with 可用的上下文管理器。它刚好接上你前面学的 yield:
+@asynccontextmanager
+async def principal_lock(key: str):
+    # —— 进入阶段:任何请求(包括正在排队等的)都先把引用计数 +1 ——
+    lock, refs = _LOCKS.get(key, (asyncio.Lock(), 0))
+    _LOCKS[key] = (lock, refs + 1)
+    try:
+        async with lock:
+            # —— 执行阶段:锁内的 SSE 生成逻辑在跑 ——
+            yield
+    finally:
+        # —— 退出阶段:引用计数 -1,归零才删除锁 ——
+        lock, refs = _LOCKS[key]
+        if refs <= 1:
+            _LOCKS.pop(key, None)
+        else:
+            _LOCKS[key] = (lock, refs - 1)
 
 
 class ChatRequest(BaseModel):
+    # 本次用户输入的消息内容（必填）
     message: str
+    # 会话 ID：多轮对话时沿用同一 ID 以关联上下文，单轮对话可省略
     conversation_id: str | None = None
-    user_id: str | None = None
 
 
 def _sse(event: str, data: dict) -> str:
+    """把事件类型与数据拼装成一条标准 SSE 消息。
+
+    SSE 协议格式：每条消息由 "event: 类型"、"data: JSON" 两行组成，
+    以空行结尾；两条消息之间靠这个空行分隔。
+    ensure_ascii=False 保证中文等非 ASCII 字符原样输出，便于前端直接展示。
+    """
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 @router.post("/chat")
-async def chat(body: ChatRequest):
+async def chat(
+    body: ChatRequest,
+    # 请求到达 /chat 时,FastAPI 看到 Depends(current_principal),会自动执行 current_principal(),把返回的身份对象注入 principal 参数。chat 函数体里不需要写任何鉴权代码,就能直接拿到「当前请求是谁」。
+    principal: Principal = Depends(current_principal),
+):
+    """聊天入口：立即返回 StreamingResponse，真正的处理逻辑在异步生成器 gen() 中。
+
+    注意：chat 本身不执行任何并发控制——所有排队、限流逻辑都发生在
+    gen() 内部。因为 FastAPI/Starlette 只有在客户端开始消费响应体时
+    才会驱动生成器执行，这意味着并发控制的生效时机被推迟到了
+    「客户端真正开始接收流」的时刻。
+    """
+
+    # 访客只能用自己的 guest_id 当会话，防止拿别人的 id 读历史
+    if principal.kind == "guest" and body.conversation_id not in (None, principal.id):
+        raise HTTPException(403, "无权访问该会话")
+
     async def gen():
+        # 每次请求生成一个唯一 run_id：前端用它关联事件流、后续取消接口也按它定位任务
         run_id = str(uuid4())
-        user_key = body.user_id or "guest"
-        lock = _USER_LOCKS.setdefault(user_key, asyncio.Lock())
+        # 访客没传会话时，用 guest_id 作为默认会话；登录用户先留空。
+        session_id = body.conversation_id or (
+            principal.id if principal.kind == "guest" else None
+        )
 
         try:
-            async with lock:
+            async with principal_lock(principal.lock_key):
+                # —— 第一道闸已通过：此刻该身份只有本请求在执行 ——
+
+                # —— 第二道闸：全局信号量，带排队超时 ——
                 try:
+                    # GLOBAL_SEM.acquire() 在做什么：
+                    # 信号量内部是一个计数器，初始值为 settings.global_concurrency（如 5）。
+                    # 可以把它想成「只有 N 个车位的停车场」：
+                    # - acquire() = 进停车场：有空位（计数 > 0）就占一个（计数 -1）并立即返回；
+                    #   没空位（计数 == 0）就在门口挂起排队，直到有人 release() 腾出车位。
+                    # - release() = 出停车场：腾出一个车位（计数 +1），并唤醒门口队伍里的第一个等待者。
+                    # 挂起是「异步等待」：排队期间协程让出控制权，不占 CPU、不阻塞事件循环，
+                    # 其他请求仍能正常处理（这正是 async/await 协作式并发的意义）。
+                    #
+                    # 若直接 await GLOBAL_SEM.acquire() 不加限制，排队是无限期的；
+                    # 因此用 wait_for 加上超时：排队超过 queue_timeout_s 秒仍未拿到许可，
+                    # 就放弃等待、向前端返回 queue_timeout 错误，避免请求无限悬挂。
+                    # 超时发生时 wait_for 会取消内部的 acquire 任务，
+                    # 被取消的 acquire 并未拿到许可，因此无需也不应 release，
+                    # 信号量计数不会泄漏。
                     await asyncio.wait_for(
                         GLOBAL_SEM.acquire(), timeout=settings.queue_timeout_s
                     )
@@ -47,27 +132,50 @@ async def chat(body: ChatRequest):
                     )
                     return
 
+                # —— 两道闸均已通过：获得执行资格，进入真正的执行阶段 ——
                 try:
+                    # 通知前端已开始执行。position 恒为 0 是骨架实现：
+                    # 只有拿到许可才会走到这里，等价于已排到队首；
+                    # 后续若实现真实队列，可改为真实的排队位置。
                     yield _sse("queue", {"position": 0})
+                    # 下发元信息：run_id 供前端关联/取消，model 告知本次使用的模型
                     yield _sse("meta", {"run_id": run_id, "model": settings.deepseek_model})
+                    # 驱动 AgentRuntime 执行，并把每个内部事件原样转成 SSE 下发。
+                    # 执行时长不受上面 wait_for 的超时限制（timeout 只包住了 acquire）。
                     async for event in AgentRuntime().run(
                         query=body.message,
-                        user_id=body.user_id,
-                        session_id=body.conversation_id,
+                        user_id=principal.user_id,
+                        session_id=session_id,
                     ):
                         yield _sse(event["type"], event["data"])
                 finally:
+                    # 无论正常结束、抛出异常还是被取消，都必须归还全局许可，
+                    # 否则信号量计数被耗尽，后续请求将全部排队超时（死锁式的饿死）。
+                    # 放在 finally 里是信号量正确性的关键。
                     GLOBAL_SEM.release()
+
+                # 走到这里说明执行正常结束（未超时、未取消）。
+                # async with 退出时自动释放身份锁，同一身份的下一个请求得以继续。
         except asyncio.CancelledError:
-            # 客户端断开：Runtime 的生成器会被取消
+            # 客户端断开连接时，Starlette 会向生成器抛 CancelledError 取消它：
+            # - GLOBAL_SEM.release() 已由上面的 finally 保证执行；
+            # - 身份锁由 async with 退出时自动释放；
+            # - AgentRuntime 内部的 LLM 调用等异步任务也会随取消链一并取消。
+            # 这里捕获后必须原样 re-raise：生成器被取消是响应提前终止的正常机制，
+            # 若吞掉 CancelledError，Starlette 会因生成器未真正结束而出现异常行为。
             raise
 
+    # 以流式响应的方式返回生成器。
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
         headers={
+            # 禁止任何中间层缓存 SSE 流
             "Cache-Control": "no-cache",
+            # 保持连接：SSE 依赖一条长连接持续推送事件
             "Connection": "keep-alive",
+            # 关键：禁用 Nginx 等反向代理的响应缓冲。若不禁用，
+            # 代理会把事件攒在缓冲区里不实时下发，前端将收不到流式输出。
             "X-Accel-Buffering": "no",
         },
     )
@@ -75,5 +183,10 @@ async def chat(body: ChatRequest):
 
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(run_id: str):
+    """按 run_id 取消正在执行的运行（骨架占位）。
+
+    目前未实现：要真正生效，需要在 chat 的 gen() 中把 AgentRuntime 的执行
+    封装成 asyncio.Task，并按 run_id 登记到任务表，此接口再从中查找并 cancel。
+    """
     # TODO: 按 run_id 找到 asyncio.Task 并 cancel
     return {"ok": True, "run_id": run_id, "note": "TODO"}

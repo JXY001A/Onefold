@@ -80,7 +80,7 @@ docker compose up --build
 
 ## 下一步（按优先级）
 
-1. 实现 `api/auth.py`：申请码、登录、访客、JWT
+1. 实现 `api/auth.py`：申请码、密码登录、JWT（访客会话已落库）
 2. 实现 `agent/runtime.py`：ReAct + DeepSeek 工具调用
 3. 实现 `rag/retrieve.py`：分块、bge-m3、hnswlib、RRF、rerank
 4. 实现 `api/documents.py`：上传、索引、收藏

@@ -65,7 +65,7 @@ export type ChatEvent =
   | { type: "error"; code?: string; message: string };
 
 export async function* streamChat(
-  body: { message: string; conversation_id?: string; user_id?: string },
+  body: { message: string; conversation_id?: string },
   opts: { token?: string; signal?: AbortSignal; url?: string } = {},
 ): AsyncGenerator<ChatEvent> {
   const headers: Record<string, string> = {
@@ -78,6 +78,8 @@ export async function* streamChat(
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    // 身份放在 HttpOnly Cookie 里，必须带上同源凭据
+    credentials: "include",
     signal: opts.signal,
   });
 

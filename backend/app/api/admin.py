@@ -11,9 +11,10 @@ from ..config import settings
 from ..db import get_db
 from ..models import AccessRequest, Message, Run, ToolCall, UsageDaily, User
 
+# 使用 router 将权限相关接口统一到 /api/admin 路由下
 router = APIRouter()
 
-
+# 获取访问请求列表
 @router.get("/requests")
 def list_requests(db: Session = Depends(get_db)):
     rows = db.query(AccessRequest).order_by(AccessRequest.created_at.desc()).all()
@@ -30,7 +31,7 @@ def list_requests(db: Session = Depends(get_db)):
         for r in rows
     ]
 
-
+# 审批访问请求
 @router.post("/requests/{request_id}/approve")
 def approve_request(request_id: str, db: Session = Depends(get_db)):
     req = db.get(AccessRequest, request_id)
@@ -42,7 +43,7 @@ def approve_request(request_id: str, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True, "code": req.code}
 
-
+# 获取用户列表
 @router.get("/users")
 def list_users(db: Session = Depends(get_db)):
     rows = db.query(User).all()
@@ -51,7 +52,7 @@ def list_users(db: Session = Depends(get_db)):
         for u in rows
     ]
 
-
+# 获取用户用量
 @router.get("/usage")
 def usage(day: str | None = None, db: Session = Depends(get_db)):
     q = db.query(UsageDaily)
@@ -71,7 +72,7 @@ def usage(day: str | None = None, db: Session = Depends(get_db)):
         for r in rows
     ]
 
-
+# 获取 run 详情
 @router.get("/runs/{run_id}")
 def run_detail(run_id: str, db: Session = Depends(get_db)):
     run = db.get(Run, run_id)
@@ -101,7 +102,7 @@ def run_detail(run_id: str, db: Session = Depends(get_db)):
         ],
     }
 
-
+# 获取存储使用情况
 @router.get("/storage")
 def storage():
     total = 0

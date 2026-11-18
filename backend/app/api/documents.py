@@ -13,7 +13,7 @@ from ..db import get_db
 from ..models import Document
 
 router = APIRouter()
-
+# 上传目录
 UPLOAD_DIR = settings.data_dir / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 

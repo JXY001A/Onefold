@@ -8,7 +8,7 @@
 Browser
   → Caddy（TLS / 限流 / SSE flush）
   → FastAPI（auth / chat / documents / skills / admin / mcp）
-  → 队列（全局 8 / 每人 1 / 60s）
+  → 队列（全局 8 / 每个用户或访客 1 / 60s）
   → Agent Runtime（context + ReAct + tools）
   → RAG / Skill / MCP / DeepSeek
   → SSE 返回 → 写 usage/audit
@@ -35,11 +35,12 @@ Browser
 
 - SQLite：`/data/onefold.db`
 - 文件：`/data/uploads`、`artifacts`、`skills`、`indexes`
+- 访客身份：`guest_sessions`（24h，`guest_id` 走 HttpOnly Cookie）
 - 临时文档 7 天；收藏后转 personal
 
 ## 待实现
 
-1. `api/auth.py`：密码/JWT/访客 session
+1. `api/auth.py`：密码登录与 JWT（访客会话已落库）
 2. `agent/runtime.py`：ReAct + 工具调用
 3. `rag/retrieve.py`：BM25 + hnswlib + RRF + rerank
 4. `api/documents.py`：上传后异步索引
