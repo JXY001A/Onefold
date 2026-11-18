@@ -12,6 +12,7 @@ from .config import settings
 engine = create_engine(settings.database_url, future=True)
 
 
+# 创建 SessionLocal 类，每次调用  SessionLocal() 都会创建一个新的数据库会话 session
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
