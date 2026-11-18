@@ -13,7 +13,6 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -21,6 +20,13 @@ from pydantic import BaseModel
 
 from ..agent.runtime import AgentRuntime
 from ..config import settings
+from ..services.history import (
+    conversation_owned_by,
+    create_run,
+    finish_run,
+    get_or_create_conversation,
+    save_message,
+)
 from .deps import Principal, current_principal
 
 router = APIRouter()
@@ -89,18 +95,17 @@ async def chat(
     「客户端真正开始接收流」的时刻。
     """
 
-    # 访客只能用自己的 guest_id 当会话，防止拿别人的 id 读历史
-    if principal.kind == "guest" and body.conversation_id not in (None, principal.id):
+    # 归属校验：回传 conversation_id 时，该会话必须属于当前身份。
+    # 登录用户与访客统一走 owner_key（"user:<id>" / "guest:<id>"），不再为访客单独开叉：
+    # 访客同样可以拥有多个会话，越权判断只看归属，不看身份类型。
+    if body.conversation_id and not conversation_owned_by(
+        body.conversation_id, principal.owner_key
+    ):
         raise HTTPException(403, "无权访问该会话")
 
     async def gen():
-        # 每次请求生成一个唯一 run_id：前端用它关联事件流、后续取消接口也按它定位任务
-        run_id = str(uuid4())
-        # 访客没传会话时，用 guest_id 作为默认会话；登录用户先留空。
-        session_id = body.conversation_id or (
-            principal.id if principal.kind == "guest" else None
-        )
-
+        # 会话 ID 在拿到许可后才确定：不传则新建（标题取首条消息），传入则刷新活跃时间。
+        # 放在排队之后，避免排队超时的请求在白建一条会话记录。
         try:
             async with principal_lock(principal.lock_key):
                 # —— 第一道闸已通过：此刻该身份只有本请求在执行 ——
@@ -133,26 +138,79 @@ async def chat(
                     return
 
                 # —— 两道闸均已通过：获得执行资格，进入真正的执行阶段 ——
+                # 本轮运行状态：默认 error；正常走完改 done；客户端断开改 cancelled。
+
+                status = "error"
+
+                # run_id 在建库成功后才有值；用于本轮的 meta 事件与取消接口定位任务。
+
+                run_id: str | None = None
+
+                # 收集 assistant 的完整回答，流结束后连同用户问题一起落库。
+                content = ""
                 try:
+                    # 定位/新建会话（后端生成 ID，并通过 meta 事件下发，前端后续轮次回传复用），
+                    # 再建本轮 run：消息通过 run_id 归属到会话。
+                    conversation_id = get_or_create_conversation(
+                        owner_key=principal.owner_key,
+                        conversation_id=body.conversation_id,
+                        title_seed=body.message,
+                    )
+                    run_id = create_run(principal.user_id, conversation_id)
+                    
                     # 通知前端已开始执行。position 恒为 0 是骨架实现：
                     # 只有拿到许可才会走到这里，等价于已排到队首；
                     # 后续若实现真实队列，可改为真实的排队位置。
+
                     yield _sse("queue", {"position": 0})
-                    # 下发元信息：run_id 供前端关联/取消，model 告知本次使用的模型
-                    yield _sse("meta", {"run_id": run_id, "model": settings.deepseek_model})
-                    # 驱动 AgentRuntime 执行，并把每个内部事件原样转成 SSE 下发。
+                    
+                    # 下发元信息：run_id 供前端关联/取消；conversation_id 供登录用户首轮存下，
+                    # 后续轮次作为 conversation_id 回传，历史才能接上。
+                    
+                    yield _sse(
+                        "meta",
+                        {
+                            "run_id": run_id,
+                            "model": settings.model,
+                            "conversation_id": conversation_id,
+                        },
+                    )
+                    # 先接上该会话的历史记忆（JOIN runs 按 conversation_id 查 messages），
+                    # 再驱动 AgentRuntime 执行，并把每个内部事件原样转成 SSE 下发。
                     # 执行时长不受上面 wait_for 的超时限制（timeout 只包住了 acquire）。
-                    async for event in AgentRuntime().run(
+                    runtime = AgentRuntime()
+                    runtime.load_history_conversation(
+                        owner_key=principal.owner_key, conversation_id=conversation_id
+                    )
+                    async for event in runtime.run(
                         query=body.message,
+                        owner_key=principal.owner_key,
                         user_id=principal.user_id,
-                        session_id=session_id,
+                        conversation_id=conversation_id,
                     ):
+                        if event["type"] == "token":
+                            content += event["data"]["delta"]
                         yield _sse(event["type"], event["data"])
+                    status = "done"
+                except asyncio.CancelledError:
+                    # 客户端中途断开：已生成的部分回答照样保留，run 标记为 cancelled
+                    status = "cancelled"
+                    raise
                 finally:
                     # 无论正常结束、抛出异常还是被取消，都必须归还全局许可，
                     # 否则信号量计数被耗尽，后续请求将全部排队超时（死锁式的饿死）。
                     # 放在 finally 里是信号量正确性的关键。
                     GLOBAL_SEM.release()
+                    
+                    # 落库：无论成功还是中断，都把本轮已产生的消息写进数据库，
+                    # 中断时保留部分回答，下轮才能接上记忆。
+                    # 注：这里是同步数据库写（毫秒级）；QPS 上来后可改
+                    # asyncio.to_thread 或投递到真正的写入队列。
+                    if run_id:
+                        save_message(run_id, "user", body.message)
+                        if content:
+                            save_message(run_id, "assistant", content)
+                        finish_run(run_id, status)
 
                 # 走到这里说明执行正常结束（未超时、未取消）。
                 # async with 退出时自动释放身份锁，同一身份的下一个请求得以继续。

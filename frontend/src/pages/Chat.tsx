@@ -1,170 +1,120 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import ChatInput from "../components/chat/ChatInput";
+import ConversationList from "../components/chat/ConversationList";
+import MessageList from "../components/chat/MessageList";
+import { useChatStream } from "../hooks/useChatStream";
+import { fetchConversations, fetchMessages, type Conversation } from "../lib/chat";
 import { ensureSession } from "../lib/session";
-import { streamChat } from "../lib/sse";
-
-type ToolRun = {
-  id: string;
-  name: string;
-  status: "running" | "ok" | "error";
-  summary?: string;
-};
-
-type Msg = {
-  role: "user" | "assistant";
-  content: string;
-  tools?: ToolRun[];
-};
 
 export default function Chat() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [running, setRunning] = useState(false);
-  const [status, setStatus] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-  const [ctrl, setCtrl] = useState<AbortController | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
 
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await fetchConversations());
+    } catch (e) {
+      setPageError((e as Error).message);
+    }
+  }, []);
+
+  const { messages, setMessages, running, status, error, send, abort } = useChatStream({
+    conversationId: activeId,
+    onConversation: setActiveId,
+    onRoundDone: refreshConversations,
+  });
+
+  // 首次进入：确保请求有身份 → 拉会话列表 → 自动打开最近一个会话
   useEffect(() => {
-    // 先确保请求有身份（JWT 或 guest_id），否则聊天接口会返回 401
     let cancelled = false;
     ensureSession()
-      .then(() => {
-        if (!cancelled) setSessionReady(true);
+      .then(() => fetchConversations())
+      .then(async (list) => {
+        if (cancelled) return;
+        setConversations(list);
+        if (list.length === 0) return;
+        // 只打开第一个（后端已按活跃时间倒序）
+        const latest = list[0].id;
+        setActiveId(latest);
+        setLoadingHistory(true);
+        try {
+          const history = await fetchMessages(latest);
+          if (!cancelled) setMessages(history);
+        } finally {
+          if (!cancelled) setLoadingHistory(false);
+        }
       })
       .catch((e) => {
-        if (!cancelled) setError((e as Error).message);
+        if (!cancelled) setPageError((e as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
       });
     return () => {
       cancelled = true;
     };
+    // 只在挂载时执行一次；setMessages 是稳定的 state setter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const patchLast = (fn: (m: Msg) => Msg) =>
-    setMessages((prev) => {
-      const idx = prev.map((m) => m.role).lastIndexOf("assistant");
-      if (idx < 0) return prev;
-      const next = prev.slice();
-      next[idx] = fn(next[idx]);
-      return next;
-    });
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || running || !sessionReady) return;
-
-    setInput("");
-    setError(null);
-    setStatus("");
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: text },
-      { role: "assistant", content: "", tools: [] },
-    ]);
-
-    const controller = new AbortController();
-    setCtrl(controller);
-    setRunning(true);
-
+  const openConversation = async (id: string) => {
+    if (running || id === activeId) return;
+    setLoadingHistory(true);
+    setPageError(null);
     try {
-      for await (const ev of streamChat(
-        { message: text },
-        { signal: controller.signal },
-      )) {
-        if (ev.type === "queue") {
-          setStatus("排队中…");
-        } else if (ev.type === "token") {
-          setStatus("");
-          patchLast((m) => ({ ...m, content: m.content + ev.delta }));
-        } else if (ev.type === "tool_call") {
-          patchLast((m) => ({
-            ...m,
-            tools: [
-              ...(m.tools ?? []),
-              { id: ev.id, name: ev.name, status: "running" },
-            ],
-          }));
-        } else if (ev.type === "tool_result") {
-          patchLast((m) => ({
-            ...m,
-            tools: (m.tools ?? []).map((t) =>
-              t.id === ev.id
-                ? { ...t, status: ev.ok ? "ok" : "error", summary: ev.summary }
-                : t,
-            ),
-          }));
-        } else if (ev.type === "error") {
-          setError(ev.message);
-          setStatus("");
-        }
-      }
+      const history = await fetchMessages(id);
+      setActiveId(id);
+      setMessages(history);
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
-        setError((e as Error).message);
-      }
+      setPageError((e as Error).message);
     } finally {
-      setRunning(false);
-      setCtrl(null);
-      setStatus("");
+      setLoadingHistory(false);
     }
   };
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="min-h-[50vh] space-y-4">
-        {messages.length === 0 && (
-          <p className="py-16 text-center text-sm text-slate-500">
-            问一个问题，或上传文档后再问。
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-2 text-xs font-medium text-slate-500">
-              {m.role === "user" ? "我" : "归一"}
-            </div>
-            <p className="whitespace-pre-wrap text-sm leading-6">{m.content}</p>
-            {m.tools?.map((t) => (
-              <div key={t.id} className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
-                <code>{t.name}</code>
-                <span className="ml-2 text-slate-500">{t.status}</span>
-                {t.summary && <div className="mt-1 text-slate-600">{t.summary}</div>}
-              </div>
-            ))}
-          </div>
-        ))}
-        {status && <p className="text-center text-sm text-slate-500">{status}</p>}
-        {error && <p className="text-center text-sm text-red-600">{error}</p>}
-      </div>
+  const newChat = () => {
+    if (running) return;
+    setActiveId(null);
+    setMessages([]);
+    setInput("");
+    setPageError(null);
+  };
 
-      <div className="flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          disabled={running || !sessionReady}
-          placeholder={sessionReady ? "输入问题…" : "正在建立访客会话…"}
-          className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 disabled:bg-slate-50"
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    void send(text);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 md:flex-row">
+      <ConversationList
+        conversations={conversations}
+        activeId={activeId}
+        disabled={running || !ready}
+        onSelect={openConversation}
+        onNew={newChat}
+      />
+
+      <div className="flex-1 space-y-4">
+        <MessageList
+          messages={messages}
+          status={loadingHistory ? "加载历史…" : status}
+          error={pageError ?? error}
         />
-        {running ? (
-          <button
-            onClick={() => ctrl?.abort()}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
-          >
-            停止
-          </button>
-        ) : (
-          <button
-            onClick={send}
-            disabled={!sessionReady}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:bg-slate-400"
-          >
-            发送
-          </button>
-        )}
+        <ChatInput
+          value={input}
+          onChange={setInput}
+          onSend={handleSend}
+          onStop={abort}
+          running={running}
+          disabled={!ready}
+        />
       </div>
     </div>
   );

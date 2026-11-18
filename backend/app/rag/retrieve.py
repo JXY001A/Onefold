@@ -24,8 +24,8 @@ class RetrievedChunk:
 def retrieve(
     query: str,
     user_id: str | None = None,
-    session_id: str | None = None,
+    conversation_id: str | None = None,
     top_k: int = 5,
 ) -> list[RetrievedChunk]:
-    _ = (query, user_id, session_id, top_k)
+    _ = (query, user_id, conversation_id, top_k)
     return []

@@ -15,7 +15,9 @@ from .deps import Principal, as_utc, current_principal
 
 router = APIRouter()
 
-GUEST_TTL_HOURS = 24
+# 30 天滑动有效期：每次进入站点（/api/auth/guest）都顺延过期时间，
+# 所以「连续 30 天没来」才会失去身份，而不是从首次访问起算 30 天。
+GUEST_TTL_HOURS = 24 * 30
 
 
 class AccessRequestIn(BaseModel):
@@ -66,13 +68,16 @@ def me(principal: Principal = Depends(current_principal)):
     return {"kind": principal.kind}
 
 
+# 访客登录，通过设置 guest_id Cookie,来实现访客的记录
 @router.post("/guest")
 def guest(request: Request, response: Response, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     guest_id = request.cookies.get("guest_id")
     row = db.get(GuestSession, guest_id) if guest_id else None
+    # 计算有效期，当前时间加上 30 天
+    expires_at = now + timedelta(hours=GUEST_TTL_HOURS)
 
-    # 复用未过期 Cookie，避免每次刷新页面都新建一条访客记录
+    # 复用未过期 Cookie，避免每次刷新页面都新建一条访客记录；判断是否过期，过期重新生成 guest_id
     if row is None or as_utc(row.expires_at) <= now:
         guest_id = secrets.token_urlsafe(24)
         row = GuestSession(
@@ -81,11 +86,13 @@ def guest(request: Request, response: Response, db: Session = Depends(get_db)):
             user_agent=(request.headers.get("user-agent") or "")[:255] or None,
             created_at=now,
             last_seen_at=now,
-            expires_at=now + timedelta(hours=GUEST_TTL_HOURS),
+            expires_at=expires_at,
         )
         db.add(row)
     else:
+        # 滑动续期：老访客每来一次就把有效期往后推 30 天
         row.last_seen_at = now
+        row.expires_at = expires_at
 
     db.commit()
 

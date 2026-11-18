@@ -1,56 +1,118 @@
-"""归一 · 配置。所有可调参数集中在这里，环境变量覆盖默认值。"""
+"""归一 · 配置中心。
+
+所有可调参数集中在这一个类里,应用其他模块一律通过 `settings.xxx` 读取。
+
+取值优先级(从高到低):
+    1. 显式传参         Settings(global_concurrency=16)
+    2. 环境变量         export GLOBAL_CONCURRENCY=16
+    3. .env 文件        GLOBAL_CONCURRENCY=16
+    4. 字段默认值       global_concurrency: int = 8
+
+字段名与环境变量的映射规则:
+    字段名转大写即为环境变量名,且大小写不敏感:
+        deepseek_api_key  ←→  DEEPSEEK_API_KEY / DeepSeek_Api_Key 均能匹配
+
+安全约定:
+    - 真实密钥(如 DEEPSEEK_API_KEY、JWT_SECRET)只放在 .env 或环境变量里,
+      绝不写进本文件(.env 已被 .gitignore 忽略,不会进仓库);
+    - 本文件只保留「安全的占位默认值」,供本地开箱即用与阅读文档。
+"""
 
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+#TODO: Settings() 实例化的那一刻,BaseSettings 按「显式传参 > 环境变量(os.environ)> .env 文件 > 字段默认值」的顺序,为每个声明过的字段找到最高优先级的来源值,按字段标注做类型转换("8"→int 8)、校验(非法值抛 ValidationError),最后把结果写入实例属性,此后 settings.xxx 直接可用。
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    """应用配置类。
+
+    为什么继承 BaseSettings 而不是普通类(或 pydantic.BaseModel)?
+    BaseSettings 是 pydantic BaseModel 的扩展,在「类型校验」之外,额外提供了
+    「配置来源解析」能力,一行类定义就能同时获得下面四件事:
+
+    1. 多来源自动合并:按「传参 > 环境变量 > .env 文件 > 默认值」的优先级取值。
+       普通类需要自己写 os.getenv(...) or ".env" 解析;BaseModel 则完全不管来源。
+    2. 字段名 → 环境变量名自动映射,大小写不敏感(deepseek_api_key ← DEEPSEEK_API_KEY)。
+    3. 自动类型转换:环境变量天生都是字符串,BaseSettings 会按字段标注把
+       "8" 转成 int 8、"true" 转成 bool True、"~/data" 转成 Path。
+    4. 启动即校验(fail-fast):值不合法(如 GLOBAL_CONCURRENCY=abc 给 int 字段)
+       会在实例化瞬间抛 ValidationError,进程直接起不来——把配置错误挡在
+       启动阶段,而不是等第一个请求进来才崩。
+
+    model_config 是「类级行为配置」,通过 SettingsConfigDict 声明(见下)。
+    """
+
+    #TODO: 它声明了这个类的配置读取行为:告诉 BaseSettings 去哪里找值(env_file=".env")、多余键怎么处理(extra="ignore")。它本身不是业务字段,只是 pydantic 实例化时读取的类级开关,不参与 settings.xxx 取值。
+    model_config = SettingsConfigDict(
+        # env_file:指定从哪个 dotenv 文件补充读取配置。
+        # 注意:相对路径是相对于「进程的当前工作目录(cwd)」,而不是本文件所在目录!
+        #   - 在 backend/ 下启动(uvicorn app.main:app)→ 读取 backend/.env
+        #   - 在项目根启动 → 读取项目根 .env
+        #   - Docker 部署时由 docker-compose 的 env_file 注入为真实环境变量,
+        #     优先级高于 .env 文件,此处的 .env 不存在也不影响运行。
+        env_file=".env",
+        # extra:控制「配置来源里出现、但本类没有声明」的键怎么处理。
+        # 实测(不设该项时):.env 里多出一个未声明的键(例如从别处拷贝的 .env
+        # 遗留了旧变量),会直接抛 ValidationError「Extra inputs are not permitted」,
+        # 导致服务启动失败——为无关的额外键陪葬。
+        # 设为 "ignore":容忍并忽略这些额外键,只关心类里声明过的字段。
+        # 备选值:forbid(默认的严格模式)、allow(收集进 model_extra)。
+        extra="ignore",
+    )
 
     app_name: str = "onefold"
-    env: str = "dev"
+    env: str = "dev"  # 运行环境标识:dev / prod,生产环境应通过环境变量覆盖
 
-    # 存储
-    database_url: str = "sqlite:///./onefold.db"
-    data_dir: Path = Path("./data")
-    max_upload_mb: int = 20
+    # ── 存储 ──────────────────────────────────────────────
+    database_url: str = "postgresql+psycopg://localhost:5432/onefold"  #  PostgreSQL 连接串,compose 会覆盖为 db 容器地址
+    data_dir: Path = Path("./data")               # 数据根目录(上传文件、备份等)
+    max_upload_mb: int = 20                       # 单文件上传大小上限(MB)
 
-    # 鉴权
+    # ── 鉴权 ──────────────────────────────────────────────
+    # 注意:默认值仅为本地开发占位,生产环境必须通过环境变量覆盖为强随机值,
+    # 否则任何人都能用公开的默认密钥伪造 JWT。
     jwt_secret: str = "change-me-in-env"
-    jwt_ttl_hours: int = 24
-    cookie_secure: bool = False
+    jwt_ttl_hours: int = 24    # 登录态有效期(小时)
+    cookie_secure: bool = False  # Cookie 是否仅走 HTTPS;线上必须为 True
 
-    # 模型（DeepSeek）
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    # ── 模型(DeepSeek)─────────────────────────────────────
+    api_key: str = ""  # 真实密钥只放 .env / 环境变量,严禁硬编码或提交
+    base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-chat"
 
-    # 嵌入 / 重排（家里 4080 Infinity）
-    embed_base_url: str = "http://127.0.0.1:7997"
-    embed_model: str = "BAAI/bge-m3"
-    rerank_base_url: str = "http://127.0.0.1:7997"
-    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    # ── 嵌入 / 重排(家里 4080 Infinity)───────────────────
+    embed_base_url: str = "http://127.0.0.1:7997"  # 向量化服务地址(本地/Tailscale)
+    embed_model: str = "BAAI/bge-m3"               # 嵌入模型名
+    rerank_base_url: str = "http://127.0.0.1:7997"  # 重排服务地址
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"  # 重排模型名
 
-    # 并发与队列
-    global_concurrency: int = 8
-    per_user_concurrency: int = 1
-    queue_timeout_s: int = 60
+    # ── 并发与队列(详见 api/chat.py 的双层并发控制)──────────
+    global_concurrency: int = 8  # 全局信号量名额:同时执行的 AgentRuntime 任务上限
+    per_user_concurrency: int = 1  # 单身份并发上限(当前由身份锁实现为串行)
+    queue_timeout_s: int = 60  # 排队超时(秒):排队超过该时长直接返回 queue_timeout
 
-    # 配额（每日）
-    guest_messages_per_day: int = 10
-    user_messages_per_day: int = 100
-    guest_docs_max: int = 1
-    user_docs_max: int = 20
+    # ── 配额(每日)──────────────────────────────────────────
+    guest_messages_per_day: int = 10  # 访客每日消息条数
+    user_messages_per_day: int = 100  # 登录用户每日消息条数
+    guest_docs_max: int = 1           # 访客可上传文档数
+    user_docs_max: int = 20           # 登录用户可上传文档数
 
-    # 上下文预算（token）
-    context_system: int = 2000
-    context_tools: int = 2000
-    context_memory: int = 1000
-    context_rag: int = 4000
-    context_history: int = 8000
-    context_output: int = 4000
+    # ── 上下文预算(token)────────────────────────────────────
+    # 每段内容的 token 上限,用于组装提示词时给 LLM 的上下文做预算分配。
+    context_system: int = 2000    # 系统提示词
+    context_tools: int = 2000     # 工具定义
+    context_memory: int = 1000    # 长期记忆
+    context_rag: int = 4000       # RAG 检索片段
+    context_history: int = 8000   # 对话历史
+    context_output: int = 4000    # 预留的输出空间
 
 
+# 模块级单例:导入本模块的这一刻,就会完成「读取 .env/环境变量 → 类型转换 → 校验」,
+# 任何一步失败都会让进程启动直接崩掉(fail-fast),把配置问题暴露在部署时而非运行时。
+# 全应用共享这一个实例,import 即用,无需重复解析。
 settings = Settings()
+
+# 启动时确保数据目录存在:parents=True 表示递归创建父目录,
+# exist_ok=True 表示目录已存在时不报错(幂等)。
 settings.data_dir.mkdir(parents=True, exist_ok=True)

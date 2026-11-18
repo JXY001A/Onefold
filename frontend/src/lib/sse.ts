@@ -56,7 +56,7 @@ function parseBlock(raw: string): SSEEvent | null {
 
 export type ChatEvent =
   | { type: "queue"; position: number }
-  | { type: "meta"; runId: string; model?: string }
+  | { type: "meta"; runId: string; model?: string; conversationId?: string }
   | { type: "token"; delta: string }
   | { type: "tool_call"; id: string; name: string; arguments: unknown }
   | { type: "tool_result"; id: string; name: string; ok: boolean; summary?: string }
@@ -103,7 +103,12 @@ export async function* streamChat(
         yield { type: "queue", position: payload.position ?? 0 };
         break;
       case "meta":
-        yield { type: "meta", runId: payload.run_id, model: payload.model };
+        yield {
+          type: "meta",
+          runId: payload.run_id,
+          model: payload.model,
+          conversationId: payload.conversation_id,
+        };
         break;
       case "token":
         yield { type: "token", delta: payload.delta ?? "" };

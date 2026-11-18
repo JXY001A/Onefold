@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI: 调试启动 (8000)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--port", "8000"],
+      "cwd": "${workspaceFolder}/backend",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "FastAPI: 调试启动 + 热重载 (8001)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--port", "8001", "--reload"],
+      "cwd": "${workspaceFolder}/backend",
+      "justMyCode": true,
+      "console": "integratedTerminal",
+      "subProcess": true
+    },
+    {
+      "name": "FastAPI: attach 到 5678",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5678 }
+    }
+  ]
+}

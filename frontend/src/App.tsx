@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import { useVisitTracker } from "./hooks/useVisitTracker";
 import Landing from "./pages/Landing";
 import Chat from "./pages/Chat";
 import Documents from "./pages/Documents";
@@ -14,6 +15,9 @@ const links = [
 ];
 
 export default function App() {
+  // 整个应用级别记录一次访问（进入 / 心跳 / 离开），与具体页面无关
+  useVisitTracker();
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">

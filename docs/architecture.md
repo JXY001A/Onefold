@@ -24,7 +24,7 @@ Browser
 | `services/` | LLM / embeddings / search 的供应商适配 |
 | `workers/` | 队列、清理任务 |
 | `mcp_server.py` | MCP stdio 入口；HTTP 后续挂载 |
-| `models.py` | 数据表；SQLite WAL |
+| `models.py` | 数据表；PostgreSQL（timestamptz / 索引） |
 
 ## 两个入口
 
@@ -33,9 +33,11 @@ Browser
 
 ## 数据
 
-- SQLite：`/data/onefold.db`
+- PostgreSQL：compose 内 `db:5432`（本地开发直连 `127.0.0.1:5432`）
 - 文件：`/data/uploads`、`artifacts`、`skills`、`indexes`
-- 访客身份：`guest_sessions`（24h，`guest_id` 走 HttpOnly Cookie）
+- 访客身份：`guest_sessions`（30 天滑动续期，`guest_id` 走 HttpOnly Cookie）
+- 会话层级：`conversations`（会话元信息 / 标题 / `owner_key`）→ `runs`（每轮执行）→ `messages`（消息）
+- 访问记录：`visits`（进入 / 离开时间、停留时长、IP、UA 解析出的设备 / OS / 浏览器、屏幕、时区、来源页），供后续用户画像使用
 - 临时文档 7 天；收藏后转 personal
 
 ## 待实现

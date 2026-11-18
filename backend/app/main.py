@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import admin, auth, chat, documents, mcp, skills
+from .api import admin, auth, chat, conversations, documents, mcp, skills, visits
 from .config import settings
 from .db import init_db
 
@@ -18,6 +18,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+# lifespan 管启动/关闭资源（数据库连接池、模型、MCP 客户端）；yield 前是 startup，后是 shutdown。
 app = FastAPI(title="Onefold", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
@@ -31,6 +32,8 @@ app.add_middleware(
 # API 路由
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(conversations.router, prefix="/api", tags=["conversations"])
+app.include_router(visits.router, prefix="/api/visits", tags=["visits"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])

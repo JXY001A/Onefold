@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import GuestSession
+from ..models import GuestSession, as_utc
 
 
 @dataclass(frozen=True)
@@ -30,10 +30,14 @@ class Principal:
     def user_id(self) -> str | None:
         return self.id if self.kind == "user" else None
 
+    @property
+    def owner_key(self) -> str:
+        """业务归属键：会话、访问记录都按它归档（"user:xxx" / "guest:xxx"）。
 
-def as_utc(value: datetime) -> datetime:
-    # SQLite 不保存时区，读出来是 naive datetime
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        与 lock_key 取值相同，但语义不同：lock_key 用于并发锁，
+        owner_key 用于「这条数据属于谁」。分开命名是为了将来加锁策略变化时不牵连数据归属。
+        """
+        return self.lock_key
 
 
 def current_principal(

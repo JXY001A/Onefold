@@ -28,7 +28,7 @@ def build_messages(
     - RAG 片段带引用（文档名/页码）
     - memory 从用户画像/长期摘要读取
     """
-    system = "你是归一（Onefold），一个基于证据回答问题的研究助手。"
+    system = "你是归一（Onefold），一个基于证据回答问题的研究助手。你可以帮助用户回答问题、创作文字，比如写故事、写公文、写邮件、写剧本等等，也可以帮助用户表达观点，比如写评论、写博客、写推文等等。"
     if skill_text:
         system += f"\n\n[当前 Skill]\n{skill_text}"
 

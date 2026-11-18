@@ -1,24 +1,15 @@
-"""SQLite + SQLAlchemy 2.0（WAL）。"""
+"""数据库连接层（SQLAlchemy 2.0）：PostgreSQL。
 
-from sqlalchemy import create_engine, event
+连接串由 settings.database_url 提供：
+    postgresql+psycopg://user:pass@host:5432/db
+"""
+
+from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
 
-_is_sqlite = settings.database_url.startswith("sqlite")
-connect_args = {"check_same_thread": False} if _is_sqlite else {}
-
-engine = create_engine(settings.database_url, connect_args=connect_args, future=True)
-
-if _is_sqlite:
-
-    @event.listens_for(engine, "connect")
-    def _sqlite_pragmas(dbapi_connection, _record):
-        cur = dbapi_connection.cursor()
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA busy_timeout=5000")
-        cur.close()
+engine = create_engine(settings.database_url, future=True)
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

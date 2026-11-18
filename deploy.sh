@@ -8,7 +8,8 @@ if [ -n "${TAG:-}" ]; then
 fi
 
 mkdir -p data/backup
-cp -f data/onefold.db "data/backup/onefold-$(date +%Y%m%d%H%M%S).db" 2>/dev/null || true
+# 备份 PostgreSQL；db 容器未启动时跳过
+docker compose exec -T db pg_dump -U onefold onefold > "data/backup/onefold-$(date +%Y%m%d%H%M%S).sql" 2>/dev/null || true
 
 docker compose pull || true
 docker compose up -d

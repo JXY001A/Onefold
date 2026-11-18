@@ -7,7 +7,7 @@
 ## 技术栈
 
 - 前端：React 19 + TypeScript + Vite + Tailwind + shadcn/ui（组件按需加）
-- 后端：Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + SQLite(WAL)
+- 后端：Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + PostgreSQL 16
 - Agent：自写 ReAct 循环 + OpenAI SDK（DeepSeek 兼容端点）
 - RAG：jieba + rank_bm25 + hnswlib + bge-m3/reranker（4080 Infinity）
 - MCP：`mcp>=2`，同一服务双传输（stdio / Streamable HTTP）
@@ -21,7 +21,7 @@ onefold/
 │   ├── app/
 │   │   ├── main.py             # FastAPI 入口
 │   │   ├── config.py           # 环境配置
-│   │   ├── db.py               # SQLite + SQLAlchemy
+│   │   ├── db.py               # 数据库连接（PostgreSQL）
 │   │   ├── models.py           # 数据表
 │   │   ├── api/                # auth / chat / documents / skills / admin / mcp
 │   │   ├── agent/              # ReAct 循环 + 上下文预算
