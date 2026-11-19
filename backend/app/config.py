@@ -20,6 +20,7 @@
 
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -76,10 +77,40 @@ class Settings(BaseSettings):
     jwt_ttl_hours: int = 24    # 登录态有效期(小时)
     cookie_secure: bool = False  # Cookie 是否仅走 HTTPS;线上必须为 True
 
+    # ── 邮件 / 邮箱验证码 ─────────────────────────────────
+    # smtp_host 为空即 dev 模式:验证码写日志,并在响应里回传 dev_code 供本地联调。
+    # 配好下面几项后自动切真实发信,业务代码不用改。
+    smtp_host: str = ""            # 例如 smtp.qq.com / smtp.163.com / smtp.gmail.com
+    smtp_port: int = 465           # 465 = SSL;587 = STARTTLS(需 smtp_ssl=False)
+    smtp_user: str = ""            # 发信账号,通常就是邮箱地址
+    smtp_password: str = ""        # QQ/163 用「授权码」,不是登录密码
+    smtp_from: str = ""            # 发件人,留空则取 smtp_user
+    smtp_ssl: bool = True
+    email_code_ttl_minutes: int = 10   # 验证码有效期(分钟)
+    email_code_cooldown_s: int = 60    # 同一邮箱两次发码的最小间隔(秒)
+    email_code_hourly_max: int = 5     # 每小时上限(封)
+    email_code_daily_max: int = 10     # 每日上限(封)
+    email_code_max_attempts: int = 5   # 单条码允许输错的次数
+
     # ── 模型(DeepSeek)─────────────────────────────────────
     api_key: str = ""  # 真实密钥只放 .env / 环境变量,严禁硬编码或提交
     base_url: str = "https://api.deepseek.com"
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"  # 官方主推模型;旧名 deepseek-chat 仍被接受
+
+    # ── 工具(联网搜索 / 网页抓取)─────────────────────────
+    # search_enabled=False 时不注册任何工具,聊天行为与未接入工具时完全一致(可随时回滚)。
+    # Search / Fetch 走 /v1/tools/* 独立接口,与聊天共用同一把 api_key。
+    search_enabled: bool = True
+    search_count: int = 5             # 单次搜索返回条数(接口上限 50)
+    search_snippet_chars: int = 500   # 每条 summary 截断长度(接口给 600~800 字)
+    search_min_score: float = 1.0     # rerank_score 低于此值视为噪音丢弃
+    fetch_max_chars: int = 6000       # 抓取正文截断长度
+    tool_http_timeout_s: int = 20     # 单次上游请求超时
+    tool_http_retries: int = 2        # 408/429/5xx 的重试次数(4xx 不重试)
+
+    # ── Agent 循环 ────────────────────────────────────────
+    agent_max_steps: int = 10          # 单轮最多几轮工具循环,防死循环
+    agent_tool_timeout_s: int = 15    # 单个工具执行超时(秒)
 
     # ── 嵌入 / 重排(家里 4080 Infinity)───────────────────
     embed_base_url: str = "http://127.0.0.1:7997"  # 向量化服务地址(本地/Tailscale)
@@ -92,11 +123,12 @@ class Settings(BaseSettings):
     per_user_concurrency: int = 1  # 单身份并发上限(当前由身份锁实现为串行)
     queue_timeout_s: int = 60  # 排队超时(秒):排队超过该时长直接返回 queue_timeout
 
-    # ── 配额(每日)──────────────────────────────────────────
-    guest_messages_per_day: int = 10  # 访客每日消息条数
-    user_messages_per_day: int = 100  # 登录用户每日消息条数
-    guest_docs_max: int = 1           # 访客可上传文档数
-    user_docs_max: int = 20           # 登录用户可上传文档数
+    # ── 配额 ────────────────────────────────────────────────
+    # 游客累计免费轮次(一轮 = 一次提问到回答结束),用完引导注册
+    guest_max_rounds: int = 20
+    user_messages_per_day: int = 100  # 登录用户每日消息条数(待接入)
+    guest_docs_max: int = 1           # 访客可上传文档数(待接入)
+    user_docs_max: int = 20           # 登录用户可上传文档数(待接入)
 
     # ── 上下文预算(token)────────────────────────────────────
     # 每段内容的 token 上限,用于组装提示词时给 LLM 的上下文做预算分配。
@@ -106,6 +138,15 @@ class Settings(BaseSettings):
     context_rag: int = 4000       # RAG 检索片段
     context_history: int = 8000   # 对话历史
     context_output: int = 4000    # 预留的输出空间
+    # 工具结果预算(字符)：最近 context_full_runs 轮完整回放，更早的压缩成检索摘要
+    context_tool_result: int = 6000
+    context_full_runs: int = 2
+    @model_validator(mode="after")
+    def _guard_prod_secret(self) -> "Settings":
+        """生产环境禁止使用默认 JWT 密钥：默认值是公开的，谁都能伪造登录态。"""
+        if self.env == "prod" and self.jwt_secret in ("change-me", "change-me-in-env"):
+            raise ValueError("生产环境必须通过环境变量设置强随机 JWT_SECRET")
+        return self
 
 
 # 模块级单例:导入本模块的这一刻,就会完成「读取 .env/环境变量 → 类型转换 → 校验」,

@@ -1,0 +1,65 @@
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { resetPassword } from "../../lib/auth";
+import CodeField from "./CodeField";
+
+type Props = {
+  /** 成功后回传邮箱：切回登录页并预填 */
+  onDone: (email: string) => void;
+};
+
+/** 忘记密码：邮箱验证码 + 新密码。改密后旧登录态一律失效。 */
+export default function ResetForm({ onDone }: Props) {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await resetPassword({ email: email.trim(), code, password });
+      onDone(email.trim());
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <p className="text-sm text-slate-600">
+        输入注册邮箱，收 6 位验证码；验证通过后直接设置新密码。
+      </p>
+      <CodeField
+        purpose="reset"
+        email={email}
+        onEmail={setEmail}
+        code={code}
+        onCode={setCode}
+        disabled={busy}
+      />
+      <input
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        type="password"
+        placeholder="新密码（至少 8 位）"
+        autoComplete="new-password"
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
+      />
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <button
+        type="submit"
+        disabled={busy || code.length !== 6 || password.length < 8}
+        className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:bg-slate-400"
+      >
+        {busy ? "提交中…" : "重置密码"}
+      </button>
+    </form>
+  );
+}

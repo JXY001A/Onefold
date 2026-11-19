@@ -47,4 +47,5 @@ def healthz():
 
 _static = Path("static")
 if _static.exists():
+    # 静态文件：前端构建输出
     app.mount("/", StaticFiles(directory=str(_static), html=True), name="static")

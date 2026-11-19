@@ -1,4 +1,16 @@
+import type { ToolData } from "./tools";
+
 export type SSEEvent = { event: string; data: string; id?: string };
+
+/** 带上 HTTP 状态码的错误：页面要区分 403 配额用尽与其它失败。 */
+export class HttpError extends Error {
+  status: number;
+
+  constructor(status: number, body: string) {
+    super(`HTTP ${status}: ${body.slice(0, 200)}`);
+    this.status = status;
+  }
+}
 
 export async function* parseSSE(
   stream: ReadableStream<Uint8Array>,
@@ -54,12 +66,17 @@ function parseBlock(raw: string): SSEEvent | null {
   return { event, data: dataLines.join("\n"), id };
 }
 
+/** 游客免费轮次用完：后端 403，且 detail 里提示注册。 */
+export function isQuotaError(err: unknown): boolean {
+  return err instanceof HttpError && err.status === 403 && err.message.includes("注册");
+}
+
 export type ChatEvent =
   | { type: "queue"; position: number }
   | { type: "meta"; runId: string; model?: string; conversationId?: string }
   | { type: "token"; delta: string }
-  | { type: "tool_call"; id: string; name: string; arguments: unknown }
-  | { type: "tool_result"; id: string; name: string; ok: boolean; summary?: string }
+  | { type: "tool_call"; id: string; name: string; arguments: string }
+  | { type: "tool_result"; id: string; name: string; ok: boolean; summary?: string; detail?: ToolData }
   | { type: "citation"; data: unknown }
   | { type: "done"; usage?: unknown }
   | { type: "error"; code?: string; message: string };
@@ -85,7 +102,7 @@ export async function* streamChat(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new HttpError(res.status, text);
   }
   if (!res.body) throw new Error("响应没有 body");
 
@@ -114,7 +131,12 @@ export async function* streamChat(
         yield { type: "token", delta: payload.delta ?? "" };
         break;
       case "tool_call":
-        yield { type: "tool_call", id: payload.id, name: payload.name, arguments: payload.arguments };
+        yield {
+          type: "tool_call",
+          id: payload.id,
+          name: payload.name,
+          arguments: String(payload.arguments ?? ""),
+        };
         break;
       case "tool_result":
         yield {
@@ -123,6 +145,7 @@ export async function* streamChat(
           name: payload.name,
           ok: !!payload.ok,
           summary: payload.summary,
+          detail: payload.detail as ToolData | undefined,
         };
         break;
       case "citation":

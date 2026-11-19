@@ -1,125 +1,116 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import RequestTable from "../components/admin/RequestTable";
+import NoAccess from "../components/admin/NoAccess";
+import UsageTable from "../components/admin/UsageTable";
+import UserTable from "../components/admin/UserTable";
+import { useAuth } from "../context/AuthContext";
+import {
+  approveRequest,
+  changeRole,
+  changeStatus,
+  fetchRequests,
+  fetchUsage,
+  fetchUsers,
+  type AccessRequest,
+  type AdminUser,
+  type UsageRow,
+} from "../lib/admin";
+import { canManageUsers, canUseAdmin } from "../lib/roles";
 
-type AccessRequest = {
-  id: string;
-  name: string | null;
-  contact: string | null;
-  purpose: string | null;
-  status: string;
-  code: string | null;
-  created_at: string | null;
-};
+type Tab = "users" | "requests" | "usage";
 
-type Usage = {
-  user_id: string;
-  day: string;
-  messages: number;
-  tokens_in: number;
-  tokens_out: number;
-  tool_calls: number;
-};
+const TABS: { key: Tab; label: string }[] = [
+  { key: "users", label: "用户" },
+  { key: "requests", label: "体验码申请" },
+  { key: "usage", label: "用量" },
+];
 
+/** 后台：先按角色守卫，再按标签页展示；写操作只有超管能点。 */
 export default function Admin() {
+  const { me, loading } = useAuth();
+  const [tab, setTab] = useState<Tab>("users");
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
-  const [usage, setUsage] = useState<Usage[]>([]);
+  const [usage, setUsage] = useState<UsageRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
-    const [r1, r2] = await Promise.all([
-      fetch("/api/admin/requests").then((r) => r.json()),
-      fetch("/api/admin/usage").then((r) => r.json()),
-    ]);
-    setRequests(r1);
-    setUsage(r2);
-  };
+  const allowed = canUseAdmin(me?.role);
+  const canManage = canManageUsers(me?.role);
 
-  useEffect(() => {
-    load();
+  const reload = useCallback(async () => {
+    const [u, r, g] = await Promise.all([fetchUsers(), fetchRequests(), fetchUsage()]);
+    setUsers(u);
+    setRequests(r);
+    setUsage(g);
   }, []);
 
-  const approve = async (id: string) => {
-    await fetch(`/api/admin/requests/${id}/approve`, { method: "POST" });
-    load();
+  useEffect(() => {
+    if (!allowed) return;
+    let cancelled = false;
+    reload().catch((e) => {
+      if (!cancelled) setError((e as Error).message);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, reload]);
+
+  /** 统一「请求 → 报错 → 重新加载」，busy 期间禁用按钮防连点 */
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      await reload();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  return (
-    <div className="space-y-8">
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">体验码申请</h2>
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>
-                <th className="px-4 py-2">昵称</th>
-                <th className="px-4 py-2">用途</th>
-                <th className="px-4 py-2">状态</th>
-                <th className="px-4 py-2">体验码</th>
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3">{r.name ?? "-"}</td>
-                  <td className="px-4 py-3">{r.purpose ?? "-"}</td>
-                  <td className="px-4 py-3">{r.status}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{r.code ?? "-"}</td>
-                  <td className="px-4 py-3 text-right">
-                    {r.status === "pending" && (
-                      <button className="text-slate-900 underline" onClick={() => approve(r.id)}>
-                        通过
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {requests.length === 0 && (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={5}>
-                    暂无申请。
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+  if (loading) return <p className="py-10 text-sm text-slate-500">加载中…</p>;
+  if (!allowed) return <NoAccess role={me?.role} />;
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">每日用量</h2>
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>
-                <th className="px-4 py-2">用户</th>
-                <th className="px-4 py-2">日期</th>
-                <th className="px-4 py-2">消息</th>
-                <th className="px-4 py-2">输入 token</th>
-                <th className="px-4 py-2">输出 token</th>
-                <th className="px-4 py-2">工具调用</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usage.map((u) => (
-                <tr key={`${u.user_id}-${u.day}`} className="border-t border-slate-100">
-                  <td className="px-4 py-3">{u.user_id}</td>
-                  <td className="px-4 py-3">{u.day}</td>
-                  <td className="px-4 py-3">{u.messages}</td>
-                  <td className="px-4 py-3">{u.tokens_in}</td>
-                  <td className="px-4 py-3">{u.tokens_out}</td>
-                  <td className="px-4 py-3">{u.tool_calls}</td>
-                </tr>
-              ))}
-              {usage.length === 0 && (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                    暂无用量。
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-sm">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`rounded-lg px-3 py-1.5 ${
+              tab === t.key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-slate-400">
+          {canManage ? "超管：可改角色与停用账号" : "管理员：只读"}
+        </span>
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {tab === "users" && (
+        <UserTable
+          users={users}
+          canManage={canManage}
+          busy={busy}
+          onRole={(id, role) => void run(() => changeRole(id, role))}
+          onStatus={(id, status) => void run(() => changeStatus(id, status))}
+        />
+      )}
+      {tab === "requests" && (
+        <RequestTable
+          requests={requests}
+          busy={busy}
+          onApprove={(id) => void run(() => approveRequest(id))}
+        />
+      )}
+      {tab === "usage" && <UsageTable rows={usage} />}
     </div>
   );
 }

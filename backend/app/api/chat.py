@@ -25,8 +25,9 @@ from ..services.history import (
     create_run,
     finish_run,
     get_or_create_conversation,
-    save_message,
+    save_transcript,
 )
+from ..services.quota import rounds_used
 from .deps import Principal, current_principal
 
 router = APIRouter()
@@ -45,7 +46,7 @@ GLOBAL_SEM = asyncio.Semaphore(settings.global_concurrency)
 # 引用计数把等待中的请求也算进去，最后一个离开时才删除，避免锁被提前清掉。
 _LOCKS: dict[str, tuple[asyncio.Lock, int]] = {}
 
-# 把「含单个 yield 的异步生成器」变成 async with 可用的上下文管理器。它刚好接上你前面学的 yield:
+# 把「含单个 yield 的异步生成器」变成 async with 可用的上下文管理器。
 @asynccontextmanager
 async def principal_lock(key: str):
     # —— 进入阶段:任何请求(包括正在排队等的)都先把引用计数 +1 ——
@@ -103,6 +104,16 @@ async def chat(
     ):
         raise HTTPException(403, "无权访问该会话")
 
+    # 游客配额：一轮 = 一次「提问 → 回答结束」，即后建的一条 run；用完必须注册。
+    # 放在建 run 之前计数，超限时不会多出一条 run。登录用户不限量。
+    if (
+        principal.role == "guest"
+        and rounds_used(principal.owner_key) >= settings.guest_max_rounds
+    ):
+        raise HTTPException(
+            403, f"免费体验 {settings.guest_max_rounds} 轮已用完，注册后继续"
+        )
+
     async def gen():
         # 会话 ID 在拿到许可后才确定：不传则新建（标题取首条消息），传入则刷新活跃时间。
         # 放在排队之后，避免排队超时的请求在白建一条会话记录。
@@ -146,8 +157,8 @@ async def chat(
 
                 run_id: str | None = None
 
-                # 收集 assistant 的完整回答，流结束后连同用户问题一起落库。
-                content = ""
+                # 本轮运行器：落库时读它的 transcript（含 user / assistant / tool 三步）
+                runtime: AgentRuntime | None = None
                 try:
                     # 定位/新建会话（后端生成 ID，并通过 meta 事件下发，前端后续轮次回传复用），
                     # 再建本轮 run：消息通过 run_id 归属到会话。
@@ -175,21 +186,16 @@ async def chat(
                             "conversation_id": conversation_id,
                         },
                     )
-                    # 先接上该会话的历史记忆（JOIN runs 按 conversation_id 查 messages），
-                    # 再驱动 AgentRuntime 执行，并把每个内部事件原样转成 SSE 下发。
-                    # 执行时长不受上面 wait_for 的超时限制（timeout 只包住了 acquire）。
+                    # 驱动 AgentRuntime 执行：它自己按需加载历史（含工具步骤），
+                    # 并把每个内部事件原样转成 SSE 下发。执行时长不受 wait_for 限制。
                     runtime = AgentRuntime()
-                    runtime.load_history_conversation(
-                        owner_key=principal.owner_key, conversation_id=conversation_id
-                    )
                     async for event in runtime.run(
                         query=body.message,
+                        run_id=run_id,
                         owner_key=principal.owner_key,
                         user_id=principal.user_id,
                         conversation_id=conversation_id,
                     ):
-                        if event["type"] == "token":
-                            content += event["data"]["delta"]
                         yield _sse(event["type"], event["data"])
                     status = "done"
                 except asyncio.CancelledError:
@@ -202,14 +208,16 @@ async def chat(
                     # 放在 finally 里是信号量正确性的关键。
                     GLOBAL_SEM.release()
                     
-                    # 落库：无论成功还是中断，都把本轮已产生的消息写进数据库，
-                    # 中断时保留部分回答，下轮才能接上记忆。
+                    # 落库：把本轮完整 transcript（user + assistant + tool）一次写入。
+                    # 中断/异常时 transcript 里仍是已完成的部分，下一轮照样能回放。
                     # 注：这里是同步数据库写（毫秒级）；QPS 上来后可改
                     # asyncio.to_thread 或投递到真正的写入队列。
                     if run_id:
-                        save_message(run_id, "user", body.message)
-                        if content:
-                            save_message(run_id, "assistant", content)
+                        saved = list(runtime.transcript) if runtime else []
+                        if not saved:
+                            # 还没进 runtime 就失败/取消了：至少把用户问题留下
+                            saved = [{"role": "user", "content": body.message}]
+                        save_transcript(run_id, saved)
                         finish_run(run_id, status)
 
                 # 走到这里说明执行正常结束（未超时、未取消）。

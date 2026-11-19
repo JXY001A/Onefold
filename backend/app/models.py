@@ -18,13 +18,51 @@ def as_utc(value: datetime) -> datetime:
 
 
 class User(Base):
+    """登录用户。role 决定权限：
+
+        member      普通成员（注册即得）
+        admin       管理员（由超管指定），可看审批/用量/run 详情
+        superadmin  超管（手动写库），额外可改角色与停用账号
+
+    账号以邮箱为主（email 唯一），username 只作展示昵称；
+    早期没有邮箱的账号（如手动写入的超管）仍可用用户名登录。
+    游客不在本表：游客是 guest_sessions 里的一行，有效角色由身份类型决定。
+    """
+
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # 唯一但可空：早期账号没有邮箱，PG 允许多个 NULL 并存
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(16), default="user")
+    role: Mapped[str] = mapped_column(String(16), default="member")
     status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    # 改密时间：比这更早签发的 JWT 一律作废（deps.current_principal 校验 iat）
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EmailCode(Base):
+    """邮箱验证码：注册与重置密码共用同一套。
+
+    安全约定：
+        - 只存 sha256(email + code + jwt_secret)，库里看不到明文码；
+        - 一条码用一次即置 used_at，防重放；
+        - 错误次数记在 attempts 上，超过上限作废，挡暴力枚举 6 位数字。
+    """
+
+    __tablename__ = "email_codes"
+    __table_args__ = (Index("ix_email_codes_lookup", "email", "purpose", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255))
+    purpose: Mapped[str] = mapped_column(String(16))  # register / reset
+    code_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    sent_ip: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -131,7 +169,23 @@ class Run(Base):
 
 
 class Message(Base):
+    """对话消息：既是「模型看到的上下文」，也是「前端渲染的历史」。
+
+    role 三种取值：
+        user       用户提问
+        assistant  模型输出；tool_calls_json 非空时表示这一步要调用工具
+        tool       工具执行结果；tool_call_id 指回 assistant 里的那一次调用
+
+    为什么工具调用也要落 messages 表：OpenAI 协议要求 tool 消息紧跟
+    带 tool_calls 的 assistant 消息，两者必须成组出现。只有把整组都存进库，
+    下一轮重建上下文时才能 1:1 还原，否则会出现「孤儿 tool 消息」导致上游 400。
+
+    seq 是 run 内的步骤序号（1 起），同一事务写入时 created_at 可能相同，
+    排序必须靠它；早期数据的 seq=0，按 created_at 排也仍然正确。
+    """
+
     __tablename__ = "messages"
+    __table_args__ = (Index("ix_messages_run_seq", "run_id", "seq"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     run_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -139,8 +193,23 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
+    # —— 工具循环相关（非工具消息全部为 NULL）——
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+    # 上游返回的调用 ID，长度不定，不要塞进 String(36)
+    tool_call_id: Mapped[str | None] = mapped_column(String(64))
+    tool_name: Mapped[str | None] = mapped_column(String(64))
+    # 仅 assistant 行：本步要调的工具列表 [{"id","name","arguments"}]
+    tool_calls_json: Mapped[str | None] = mapped_column(Text)
+
 
 class ToolCall(Base):
+    """工具调用审计日志：运营视角（谁、何时、调了什么、多久、成没成）。
+
+    与 messages 表职责分开，不重复存正文：
+        messages  存「模型要回放的完整内容」（含网页正文，会撑大库）
+        tool_calls 存「可统计的摘要」（结果只留前 200 字）
+    """
+
     __tablename__ = "tool_calls"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -148,9 +217,17 @@ class ToolCall(Base):
     tool_name: Mapped[str] = mapped_column(String(64))
     args_json: Mapped[str | None] = mapped_column(Text)
     result_summary: Mapped[str | None] = mapped_column(Text)
+    # 结构化结果（搜索结果列表 / 抓取页信息），供前端侧栏展示链接与简介
+    data_json: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(16))
     elapsed_ms: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+    # —— 与 messages 对齐：便于从审计行回溯到具体对话步骤 ——
+    llm_call_id: Mapped[str | None] = mapped_column(String(64))
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    # 失败原因（超时 / 上游 429 / 地址被拒 等），成功时为 NULL
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class Document(Base):
