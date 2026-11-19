@@ -49,6 +49,10 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
+          # ACR 不认 buildx 默认附带的 attestation 清单（application/vnd.oci.empty.v1+json），
+          # 不关掉会报 denied: unknown manifest class
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
