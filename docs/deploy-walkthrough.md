@@ -493,6 +493,45 @@ exit 1
 - 失败自动 `TAG=$PREV docker compose up -d` 回滚到上一次，并让 Actions 变红
 - `.current_tag` 是回滚锚点，**不要手动删**
 
+### 7.6 回滚决策流程
+
+```mermaid
+flowchart TD
+    A[deploy.sh 开始] --> B[记录 PREV = .current_tag]
+    B --> C[写入新 TAG 到 .current_tag]
+    C --> D[备份 → pull → up -d]
+    D --> E{60 秒内<br/>/healthz 返回 200?}
+
+    E -- 是 --> F[清理旧镜像<br/>打印 deploy ok]
+    F --> G[exit 0<br/>Actions 绿色]
+
+    E -- 否 --> H{存在 PREV?}
+    H -- 否<br/>首次部署 --> I[exit 1<br/>无版本可回退]
+    H -- 是 --> J[TAG=PREV up -d]
+    J --> K{回滚后<br/>/healthz 200?}
+    K -- 是 --> L[.current_tag 写回 PREV<br/>rollback ok]
+    L --> M[exit 1<br/>Actions 仍标红，提醒人看一眼]
+    K -- 否 --> N[rollback failed<br/>需要人工介入]
+    N --> O[手动处理：看 app / caddy 日志<br/>必要时 TAG=旧 sha 手工 ./deploy.sh]
+
+    style G fill:#dcfce7,stroke:#16a34a
+    style I fill:#fee2e2,stroke:#dc2626
+    style M fill:#fef3c7,stroke:#d97706
+    style N fill:#fee2e2,stroke:#dc2626
+```
+
+三个要点：
+
+| 分支 | 含义 | 之后的动作 |
+|---|---|---|
+| 探活通过 | 新版本正常 | 无需干预；旧镜像被 `image prune` 清掉 |
+| 回滚成功 | 新版本有问题，已自动退回上一版 | 去 Actions 看日志找原因，修完重新 push（或手动重跑） |
+| 回滚失败 | 上一版也起不来（通常是外部依赖问题：DB 连不上、.env 写错） | 服务不可用，需人工：`docker compose logs app`，修好 `.env` 后 `./deploy.sh` |
+
+> 回滚后 `.current_tag` 会**写回旧版本**，所以「当前线上是哪个版本」始终以它为准；不要用 `latest` 判断。
+> 首次部署没有 PREV，探活失败时直接退出（`I` 分支），此时服务本就未对外，无需回滚。
+
+
 ---
 
 ## 8. 运行时：三个容器 + Caddy
@@ -621,6 +660,66 @@ dig +short <域名> A     # 应返回服务器 IP
 | 当前版本 | `cat .current_tag` |
 | 备份文件 | `ls -lh data/backup/` |
 | 进数据库 | `docker compose exec db psql -U onefold -d onefold` |
+
+### 数据备份与恢复
+
+`deploy.sh` 每次发布前会自动 `pg_dump` 一份到 `data/backup/`。下面是完整链路：
+
+```mermaid
+sequenceDiagram
+    participant T as 触发方<br/>(deploy.sh / cron)
+    participant S as 宿主机 /opt/onefold
+    participant D as db 容器
+    participant O as 异地存储（可选）
+
+    Note over T,D: 备份
+    T->>D: docker compose exec -T db pg_dump -U onefold onefold
+    D-->>S: SQL 流（stdout）
+    S->>S: 写入 data/backup/onefold-YYYYmmddHHMMSS.sql
+    S->>O: 可选：scp / 对象存储上传
+
+    Note over T,D: 恢复
+    T->>D: DROP SCHEMA public CASCADE; CREATE SCHEMA public;
+    T->>D: psql < data/backup/xxx.sql
+    D-->>T: 导入完成
+    T->>T: 重启 app（必要时）
+    T->>T: curl /healthz 验证
+```
+
+**自动备份已有**：每次 `./deploy.sh` 都会在发布前 dump 一份（失败不阻断发布）。
+
+**只靠部署时备份不够**：没人发布就不会有备份。建议加一条 cron：
+
+```bash
+# 每天 03:20 备份并 gzip，保留 14 天
+20 3 * * * cd /opt/onefold && docker compose exec -T db pg_dump -U onefold onefold | gzip > data/backup/daily-$(date +\%F).sql.gz
+30 3 * * * find /opt/onefold/data/backup -name 'daily-*.sql.gz' -mtime +14 -delete
+```
+
+**恢复步骤**（先停写，避免边导边写）：
+
+```bash
+cd /opt/onefold
+docker compose stop app
+
+# 清空现有 schema（保留库本身，权限不变）
+docker compose exec -T db psql -U onefold -d onefold -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+
+# 导入（gz 包先解压）
+docker compose exec -T db psql -U onefold -d onefold < data/backup/onefold-20261119120000.sql
+
+# 起服务并验证
+docker compose start app
+curl -fsS http://127.0.0.1:8000/healthz
+```
+
+| 注意点 | 说明 |
+|---|---|
+| 先 `stop app` | 恢复期间不接新请求，避免写入冲突 |
+| 用 `DROP SCHEMA` 而不是 `DROP DATABASE` | 后者要先断开所有连接，还容易撞权限 |
+| 备份目录不要放 `data/` 根 | `admin.py` 会扫描 `data/` 做统计，`backup/` 子目录已排除 |
+| 恢复后核对表结构 | `init_db()` 用 `create_all`，**只建表不加列**；跨版本恢复时如需新列要手动 `ALTER TABLE` |
+| 异地副本 | 单机备份挡不住磁盘损坏，重要数据建议再 `scp` 或传到对象存储 |
 
 ### 排错速查
 
