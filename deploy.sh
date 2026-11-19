@@ -3,6 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PREV=$(cat .current_tag 2>/dev/null || echo "")
+# 由 CI 调用时 TAG/ONEFOLD_IMAGE 由 workflow 传入；手工执行时从 .current_tag 与 .env 兜底，
+# 否则 compose 会退化成 onefold:latest 而报 No such image
+export TAG=${TAG:-$(cat .current_tag 2>/dev/null || echo latest)}
+export ONEFOLD_IMAGE=${ONEFOLD_IMAGE:-$(grep -E '^ONEFOLD_IMAGE=' .env 2>/dev/null | cut -d= -f2-)}
 if [ -n "${TAG:-}" ]; then
   echo "$TAG" > .current_tag
 fi

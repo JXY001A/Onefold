@@ -95,6 +95,9 @@ COOKIE_SECURE=true
 # 站点域名：Caddy 据此自动申请 HTTPS 证书
 ONEFOLD_DOMAIN=onefold.example.com
 
+# 镜像地址：deploy.sh 手工执行时从这里取镜像名（CI 会另外传入，二者一致即可）
+ONEFOLD_IMAGE=<ACR 地址>/<命名空间>/onefold
+
 # 数据库密码：只在「卷首次初始化」时生效，之后改这里不会改库内密码
 POSTGRES_PASSWORD=<强随机>
 
@@ -191,10 +194,13 @@ docker compose exec db psql -U onefold -d onefold -c \
 | 看服务状态 | `cd /opt/onefold && docker compose ps` |
 | 看应用日志 | `docker compose logs -f --tail=200 app` |
 | 看 Caddy（证书/转发） | `docker compose logs -f --tail=200 caddy` |
-| 重启应用 | `docker compose restart app` |
-| 改了 `.env` | `docker compose up -d`（不是 restart，环境变量要重建容器） |
+| 重启应用 | `docker compose restart app`（只是重启，不重读 .env） |
+| 改了 `.env` | `cd /opt/onefold && ./deploy.sh`（环境变量要重建容器，restart 不生效） |
 | 回滚到上一个版本 | 部署失败时 `deploy.sh` 会自动回滚；手动回滚见下 |
 | 当前部署的版本 | `cat /opt/onefold/.current_tag` |
+
+> 修改 `.env` 后直接跑 `./deploy.sh` 即可：它会从 `.current_tag` 和 `.env` 的 `ONEFOLD_IMAGE` 兜底镜像名与版本，并做备份 + 健康检查。
+> 不要用裸的 `docker compose up -d`：会试图本地构建镜像并退化成 `onefold:latest`，报 `No such image`。
 
 手动回滚：
 
