@@ -345,12 +345,24 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 on:
   push:
     branches: [main]
+    paths-ignore:            # 纯文档改动不进镜像，跳过构建与部署
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch: {}      # 修完服务器配置可直接手动重跑，不用空提交
 
 concurrency:
   group: deploy-main
   cancel-in-progress: false  # 排队而不是取消，避免两次 push 的镜像互相覆盖
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'   # 手动触发误选其他分支时不构建不部署
 ```
+
+**会触发**：push 到 `main`（含网页编辑提交、PR 合并）、Actions 页手动 Run workflow（限 main）。
+**不会触发**：push 其他分支、开/更 PR、push tag、纯文档改动（`docs/**`、`**.md`）。
+
+> `paths-ignore` 是「全部命中才跳过」：同一次 push 里只要有一个非文档文件，依旧正常部署。
 
 ### 6.2 镜像地址注入
 

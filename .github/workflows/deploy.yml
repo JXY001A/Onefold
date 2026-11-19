@@ -3,6 +3,11 @@ name: deploy
 on:
   push:
     branches: [main]
+    # 纯文档改动不进镜像，跳过构建与部署；
+    # 同一次 push 里只要有一个非文档文件，仍会正常触发
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   # 手动重跑：修完服务器配置后不用空提交，直接部署当前 HEAD
   workflow_dispatch: {}
 
@@ -20,6 +25,8 @@ env:
 
 jobs:
   build:
+    # 手动触发时可能选了非 main 分支：只允许 main 的代码上线
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: 校验镜像仓库已配置
