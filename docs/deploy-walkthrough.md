@@ -363,6 +363,8 @@ jobs:
 **不会触发**：push 其他分支、开/更 PR、push tag、纯文档改动（`docs/**`、`**.md`）。
 
 > `paths-ignore` 是「全部命中才跳过」：同一次 push 里只要有一个非文档文件，依旧正常部署。
+>
+> `main` 默认没有分支保护，误 push 会直接上线。想更稳可以在 Settings → Branches 开启「Require a pull request before merging」，或给 `deploy` job 挂一个 Environment 要求人工 Approve 后才执行。
 
 ### 6.2 镜像地址注入
 
