@@ -19,7 +19,9 @@ python-docx>=1.1
 markdown>=3.6
 jieba>=0.42
 rank-bm25>=0.2.2
-hnswlib>=0.8
+# hnswlib>=0.8  # RAG 索引用；当前未接入（仅 rag/retrieve.py 的 TODO 提及），
+#                且它会从源码编译、需要 g++，而运行镜像是 python:3.12-slim。
+#                真正接 RAG 时再打开，并在 Dockerfile 加 build-essential 多阶段构建。
 numpy>=1.26
 python-frontmatter>=1.1
 pyyaml>=6.0
