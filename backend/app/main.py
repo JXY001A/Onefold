@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import admin, auth, chat, conversations, documents, mcp, skills, visits
 from .config import settings
@@ -45,7 +46,22 @@ def healthz():
     return {"status": "ok", "app": settings.app_name, "env": settings.env}
 
 
+class SPAStaticFiles(StaticFiles):
+    """前端用 BrowserRouter：/chat、/admin 这类路径在磁盘上没有对应文件，
+    直接打开或刷新会 404，这里回落到 index.html 交给前端路由处理。
+    """
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            # API / MCP 的 404 保持原样，避免把接口错误伪装成首页
+            if exc.status_code != 404 or path.startswith(("api/", "mcp/")):
+                raise
+            return await super().get_response("index.html", scope)
+
+
 _static = Path("static")
 if _static.exists():
-    # 静态文件：前端构建输出
-    app.mount("/", StaticFiles(directory=str(_static), html=True), name="static")
+    # 静态文件：前端构建输出（含 SPA 回落）
+    app.mount("/", SPAStaticFiles(directory=str(_static), html=True), name="static")

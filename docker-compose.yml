@@ -37,6 +37,9 @@ services:
     image: caddy:2
     restart: unless-stopped
     ports: ["80:80", "443:443"]
+    environment:
+      # 不设时整个站点监听 :80（本地）；生产在 .env 写域名，Caddy 自动签 HTTPS
+      ONEFOLD_DOMAIN: ${ONEFOLD_DOMAIN:-:80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data

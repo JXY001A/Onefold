@@ -3,18 +3,46 @@ name: deploy
 on:
   push:
     branches: [main]
+  # 手动重跑：修完服务器配置后不用空提交，直接部署当前 HEAD
+  workflow_dispatch: {}
+
+# 同一时间只跑一个部署；排队而不是取消，避免两次 push 的镜像互相覆盖
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+# 镜像仓库地址必须显式配置：新版 ACR 个人版实例是 crpi-xxx.<region>.personal.cr.aliyuncs.com，
+# 不再是公用的 registry.<region>.aliyuncs.com。漏配就直接失败，避免推到错误地址只报 warning。
+env:
+  REGISTRY: ${{ vars.ACR_REGISTRY || secrets.ACR_REGISTRY }}
+  NAMESPACE: ${{ vars.ACR_NAMESPACE || secrets.ACR_NAMESPACE }}
+  IMAGE: ${{ vars.ACR_REGISTRY || secrets.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE || secrets.ACR_NAMESPACE }}/onefold
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: 校验镜像仓库已配置
+        # 两个值缺一个都会推出畸形地址，提前拦下来
+        run: |
+          missing=""
+          [ -n "${{ env.REGISTRY }}" ] || missing="$missing ACR_REGISTRY"
+          [ -n "${{ env.NAMESPACE }}" ] || missing="$missing ACR_NAMESPACE"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少仓库配置:$missing（填在 repository Secrets 或 Variables 里）"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+
       - uses: docker/setup-buildx-action@v3
+
       - uses: docker/login-action@v3
         with:
-          registry: registry.cn-hangzhou.aliyuncs.com
+          registry: ${{ env.REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
+
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -22,8 +50,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            registry.cn-hangzhou.aliyuncs.com/<ns>/onefold:${{ github.sha }}
-            registry.cn-hangzhou.aliyuncs.com/<ns>/onefold:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -36,6 +64,8 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          # ONEFOLD_IMAGE 交给 compose 做变量替换（shell 环境优先于 .env），
+          # 否则 compose 会退回 onefold:<sha>，pull 拉不到、up 起的还是旧镜像
           script: |
             cd /opt/onefold
-            TAG=${{ github.sha }} ./deploy.sh
+            TAG=${{ github.sha }} ONEFOLD_IMAGE=${{ env.IMAGE }} ./deploy.sh

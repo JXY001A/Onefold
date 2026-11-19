@@ -18,7 +18,11 @@ def test_guest_session_and_chat():
 
         me = client.get("/api/auth/me")
         assert me.status_code == 200
-        assert me.json() == {"kind": "guest"}
+        body = me.json()
+        # 身份接口返回完整主体：id / role / email / username / quota
+        assert body["role"] == "guest"
+        assert body["id"] == client.cookies["guest_id"]
+        assert body["quota"]["limit"] > 0
 
         chat = client.post("/api/chat", json={"message": "你好"})
         assert chat.status_code == 200

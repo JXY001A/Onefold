@@ -1,7 +1,11 @@
-# 本地测试用 :80；生产换成你的备案域名（Caddy 自动 HTTPS）
-:80 {
+# 站点地址由环境变量 ONEFOLD_DOMAIN 决定（docker-compose 会注入，默认 :80）：
+#   - 本地：不设 → :80，直接 http://localhost 访问
+#   - 生产：.env 里设 ONEFOLD_DOMAIN=onefold.example.com → Caddy 自动申请并续期 HTTPS 证书
+# 注意：这个文件要在 compose 里跑，单独 caddy run 时没有该变量会报错。
+{$ONEFOLD_DOMAIN} {
     encode zstd gzip
     reverse_proxy app:8000 {
+        # SSE 流式输出必须关掉缓冲，否则前端会攒一大段才一次性冒出来
         flush_interval -1
     }
 }
