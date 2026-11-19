@@ -1,5 +1,7 @@
 # 部署手册
 
+> 这是**命令速查版**。想理解每一步为什么这么做、以及首次从 ACR 到上线的完整流程与踩坑记录，看 [deploy-walkthrough.md](deploy-walkthrough.md)。
+
 一条链路：`push main` → GitHub Actions 构建镜像并推阿里云 ACR → SSH 到服务器执行 `deploy.sh` → `docker compose pull && up -d` → 探活失败自动回滚。
 
 ```

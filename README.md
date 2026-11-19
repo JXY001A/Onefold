@@ -79,7 +79,7 @@ docker compose up --build
 # 打开 http://localhost
 ```
 
-生产部署（GitHub Actions + 阿里云 ACR + Caddy 自动 HTTPS）见 [docs/deploy.md](docs/deploy.md)。
+生产部署（GitHub Actions + 阿里云 ACR + Caddy 自动 HTTPS）见 [docs/deploy.md](docs/deploy.md)；想看从创建 ACR 到上线的完整流程、原理与踩坑记录，见 [docs/deploy-walkthrough.md](docs/deploy-walkthrough.md)。
 
 ## 账号与配额
 
