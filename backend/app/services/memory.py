@@ -255,15 +255,22 @@ def finish_memory_job(job_id: str, result: str, stats: dict | None = None) -> No
         db.close()
 
 
-def fail_memory_job(job_id: str, error: str, attempts: int) -> None:
+def fail_memory_job(
+    job_id: str,
+    error: str,
+    attempts: int,
+    *,
+    force: bool = False,
+    result: str | None = None,
+) -> None:
     """失败处理：未达上限则指数退避重排，达到上限标记 failed。
 
-    退避秒数 = min(300, 5 * 2^attempts)，即 10s、20s、40s…最多 5 分钟，
-    避免模型服务短暂故障时把队列刷爆。
+    force=True 用于“模型输出结构始终不合法”这类重试也不会好的情况：
+    直接 failed，避免三次盲重试。
     """
     db = SessionLocal()
     try:
-        if attempts >= settings.memory_max_attempts:
+        if force or attempts >= settings.memory_max_attempts:
             status = "failed"
             run_after = now()
         else:
@@ -274,6 +281,7 @@ def fail_memory_job(job_id: str, error: str, attempts: int) -> None:
             .where(MemoryJob.id == job_id)
             .values(
                 status=status,
+                result=result if status == "failed" else None,
                 last_error=error[:1000],
                 run_after=run_after,
                 locked_at=None,

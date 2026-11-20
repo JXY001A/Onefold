@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
+from app.config import settings
 from app.db import SessionLocal
 from app.main import app
 from app.models import MemoryEvent, MemoryItem, MemoryJob, MemorySetting, now
@@ -163,6 +164,58 @@ def test_claim_and_finish_job():
             assert row.result == "empty"
     finally:
         _cleanup(owner)
+
+
+def test_legacy_extraction_shape_is_normalized():
+    # 复现线上 DeepSeek 返回的 id/type/content 形状
+    result = worker.ExtractionResult.model_validate(
+        {
+            "cards": [
+                {
+                    "id": "user-name",
+                    "type": "personal_info",
+                    "content": "姓名：金显昱",
+                    "source_message_id": "msg-1",
+                }
+            ],
+            "notes": [
+                {
+                    "id": "onefold-platform",
+                    "content": "用户在做 Onefold 平台。",
+                    "source_message_id": "msg-2",
+                }
+            ],
+        }
+    )
+    card = result.cards[0]
+    assert (card.category, card.key, card.value) == (
+        "personal_info",
+        "user-name",
+        "姓名：金显昱",
+    )
+    assert card.text == "姓名：金显昱"
+    assert result.notes[0].text == "用户在做 Onefold 平台。"
+
+
+def test_extract_repairs_invalid_schema_once(monkeypatch):
+    # 第一次故意缺 source_message_id，第二次返回合法结构
+    replies = iter(
+        [
+            '{"cards": [{"category": "profile", "key": "name", "value": "A", "text": "姓名：A"}], "notes": []}',
+            '{"cards": [{"category": "profile", "key": "name", "value": "A", "text": "姓名：A", "source_message_id": "msg-1"}], "notes": []}',
+        ]
+    )
+    calls = {"n": 0}
+
+    def fake_call(*_args, **_kwargs):
+        calls["n"] += 1
+        return next(replies)
+
+    monkeypatch.setattr(settings, "api_key", "test-key")
+    monkeypatch.setattr(worker, "_call_model", fake_call)
+    result = worker._extract("user:test", [{"id": "msg-1", "role": "user", "content": "我叫 A"}], 0)
+    assert calls["n"] == 2
+    assert result.cards[0].source_message_id == "msg-1"
 
 
 def test_worker_process_job_with_mocked_llm(monkeypatch):
