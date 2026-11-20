@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import admin, auth, chat, conversations, documents, mcp, skills, visits
+from .api import admin, auth, chat, conversations, documents, mcp, memory, skills, visits
 from .config import settings
 from .db import init_db
 
@@ -34,6 +34,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(conversations.router, prefix="/api", tags=["conversations"])
+app.include_router(memory.router, prefix="/api/memory", tags=["memory"])
 app.include_router(visits.router, prefix="/api/visits", tags=["visits"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"])

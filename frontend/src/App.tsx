@@ -4,6 +4,7 @@ import { useVisitTracker } from "./hooks/useVisitTracker";
 import Landing from "./pages/Landing";
 import Chat from "./pages/Chat";
 import Documents from "./pages/Documents";
+import Memory from "./pages/Memory";
 import Skills from "./pages/Skills";
 import Admin from "./pages/Admin";
 import Login from "./pages/Login";
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/documents" element={<Documents />} />
+          <Route path="/memory" element={<Memory />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/login" element={<Login />} />

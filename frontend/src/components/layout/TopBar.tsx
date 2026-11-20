@@ -7,6 +7,7 @@ const LINKS = [
   { to: "/", label: "首页" },
   { to: "/chat", label: "对话" },
   { to: "/documents", label: "文档" },
+  { to: "/memory", label: "记忆" },
   { to: "/skills", label: "Skill" },
   { to: "/admin", label: "后台", adminOnly: true },
 ];

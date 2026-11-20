@@ -141,6 +141,23 @@ class Settings(BaseSettings):
     # 工具结果预算(字符)：最近 context_full_runs 轮完整回放，更早的压缩成检索摘要
     context_tool_result: int = 6000
     context_full_runs: int = 2
+
+    # ── 长期记忆 ──────────────────────────────────────────
+    memory_enabled: bool = True          # 总开关；关闭后不入队、不注入
+    memory_worker_concurrency: int = 2   # worker 进程内并发提取数
+    memory_poll_s: float = 2.0           # 没任务时的轮询间隔
+    memory_max_attempts: int = 3         # 单 job 最大尝试次数
+    memory_max_turns: int = 10           # 提取时最多看最近几轮
+    memory_extract_max_cards: int = 3    # 单轮最多提取卡片
+    memory_extract_max_notes: int = 2    # 单轮最多提取笔记
+    memory_cards_max: int = 20           # 注入卡片上限
+    memory_notes_max: int = 5            # 注入笔记上限
+    memory_card_chars: int = 120         # 单张卡片 text 上限
+    memory_note_chars: int = 300         # 单条笔记 text 上限
+    guest_memory_min_rounds: int = 3     # 访客达到该轮次才提取记忆
+    guest_memory_daily_limit: int = 4    # 访客每日提取次数上限
+    guest_memory_ttl_days: int = 90      # 访客记忆未活跃清理天数
+    memory_prompt_temperature: float = 0.2
     @model_validator(mode="after")
     def _guard_prod_secret(self) -> "Settings":
         """生产环境禁止使用默认 JWT 密钥：默认值是公开的，谁都能伪造登录态。"""

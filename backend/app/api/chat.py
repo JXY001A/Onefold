@@ -12,6 +12,8 @@
 
 import asyncio
 import json
+import logging
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,8 +29,12 @@ from ..services.history import (
     get_or_create_conversation,
     save_transcript,
 )
+from ..services.memory import enqueue_memory_job, memory_enabled_for
 from ..services.quota import rounds_used
 from .deps import Principal, current_principal
+
+logger = logging.getLogger(__name__)
+_EXPLICIT_MEMORY = re.compile(r"记住|记一下|别忘|以后都|remember", re.IGNORECASE)
 
 router = APIRouter()
 
@@ -153,8 +159,8 @@ async def chat(
 
                 status = "error"
 
-                # run_id 在建库成功后才有值；用于本轮的 meta 事件与取消接口定位任务。
-
+                # 会话/运行 ID 在数据库写入成功后才确定；提前声明便于 finally 使用
+                conversation_id: str | None = None
                 run_id: str | None = None
 
                 # 本轮运行器：落库时读它的 transcript（含 user / assistant / tool 三步）
@@ -167,6 +173,7 @@ async def chat(
                         conversation_id=body.conversation_id,
                         title_seed=body.message,
                     )
+
                     run_id = create_run(principal.user_id, conversation_id)
                     
                     # 通知前端已开始执行。position 恒为 0 是骨架实现：
@@ -219,6 +226,25 @@ async def chat(
                             saved = [{"role": "user", "content": body.message}]
                         save_transcript(run_id, saved)
                         finish_run(run_id, status)
+
+                        # 记忆提取只登记任务，绝不阻塞本轮回答；失败也不影响聊天
+                        guest_ready = (
+                            principal.role == "guest"
+                            and rounds_used(principal.owner_key) >= settings.guest_memory_min_rounds
+                        )
+                        if status == "done" and conversation_id and (
+                            principal.role == "user" or guest_ready
+                        ):
+                            try:
+                                if memory_enabled_for(principal.owner_key):
+                                    enqueue_memory_job(
+                                        owner_key=principal.owner_key,
+                                        run_id=run_id,
+                                        conversation_id=conversation_id,
+                                        priority=10 if _EXPLICIT_MEMORY.search(body.message) else 0,
+                                    )
+                            except Exception:
+                                logger.exception("enqueue memory job failed: run=%s", run_id)
 
                 # 走到这里说明执行正常结束（未超时、未取消）。
                 # async with 退出时自动释放身份锁，同一身份的下一个请求得以继续。

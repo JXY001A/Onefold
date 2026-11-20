@@ -19,6 +19,19 @@ services:
       interval: 30s
       retries: 3
 
+  memory-worker:
+    build: .
+    image: ${ONEFOLD_IMAGE:-onefold}:${TAG:-latest}
+    restart: unless-stopped
+    # 与 app 同镜像，不同入口；不暴露 HTTP 端口
+    command: ["python", "-m", "app.workers.memory"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://onefold:${POSTGRES_PASSWORD:-onefold}@db:5432/onefold
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped

@@ -21,8 +21,8 @@ Browser
 | `api/` | HTTP 契约；不写业务 |
 | `agent/` | 上下文预算、ReAct 循环、工具路由（`tools.py` = 工具注册表） |
 | `rag/` | 分块、嵌入、索引、检索、重排 |
-| `services/` | LLM / embeddings / search 的供应商适配；`services/tools/` = 联网搜索与网页抓取 |
-| `workers/` | 队列、清理任务 |
+| `services/` | LLM / embeddings / search 的供应商适配；`services/memory.py` = 记忆读写；`services/tools/` = 联网搜索与网页抓取 |
+| `workers/` | `workers/memory.py` = 记忆提取 worker（独立进程） |
 | `mcp_server.py` | MCP stdio 入口；HTTP 后续挂载 |
 | `models.py` | 数据表；PostgreSQL（timestamptz / 索引） |
 
@@ -42,6 +42,8 @@ Browser
 - 消息带 `seq`（轮内序号）、`tool_call_id` / `tool_name`（工具行）、`tool_calls_json`（assistant 的调用声明），索引 `(run_id, seq)`
 - `tool_calls` 表：审计用摘要（参数、耗时、成败、结果前 200 字）+ `data_json`（结构化结果：搜索命中的标题/链接/站点/日期/简介），供前端侧栏展示
 - 访问记录：`visits`（进入 / 离开时间、停留时长、IP、UA 解析出的设备 / OS / 浏览器、屏幕、时区、来源页），供后续用户画像使用
+- 长期记忆：`memory_items`（卡片 / 笔记）、`memory_jobs`（提取任务队列）、`memory_events`（变更审计）、`memory_settings`（用户/访客开关）
+- 记忆 worker：独立进程 `python -m app.workers.memory`，通过 `SKIP LOCKED` 抢 `memory_jobs`，不阻塞 Uvicorn
 - 临时文档 7 天；收藏后转 personal
 
 ## 工具调用（联网搜索 / 网页抓取）

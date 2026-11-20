@@ -1,6 +1,6 @@
 # 归一 · Onefold
 
-> 万般能力，归一入口。一个云端 Agent 助手：研究检索、临时文档问答、Skill 按需加载、MCP 工具调用、流式回答。
+> 万般能力，归一入口。一个云端 Agent 助手：研究检索、临时文档问答、长期记忆、Skill 按需加载、MCP 工具调用、流式回答。
 >
 > 当前状态：**架构骨架**。可运行的健康检查 + SSE 占位 + 前端聊天壳，业务逻辑按 TODO 填充。
 
@@ -23,16 +23,16 @@ onefold/
 │   │   ├── config.py           # 环境配置
 │   │   ├── db.py               # 数据库连接（PostgreSQL）
 │   │   ├── models.py           # 数据表
-│   │   ├── api/                # auth / chat / conversations / documents / skills / admin / mcp
+│   │   ├── api/                # auth / chat / conversations / memory / documents / skills / admin / mcp
 │   │   ├── agent/              # ReAct 循环 + 上下文预算 + 工具注册表
 │   │   ├── rag/                # 分块 / 嵌入 / 索引 / 检索 / 重排
-│   │   ├── services/           # LLM / embeddings / 联网搜索（tools/）/ 邮件 / 配额
-│   │   ├── workers/            # 队列 / 清理
+│   │   ├── services/           # LLM / embeddings / 联网搜索 / 记忆 / 邮件 / 配额
+│   │   ├── workers/            # memory.py：长期记忆提取 worker
 │   │   └── mcp_server.py       # MCP 服务入口（stdio）
 │   ├── tests/
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/pages/              # Landing / Chat / Documents / Skills / Admin
+│   ├── src/pages/              # Landing / Chat / Memory / Documents / Skills / Admin
 │   ├── src/lib/sse.ts          # SSE 解析 + streamChat
 │   ├── src/lib/chat.ts         # 会话/消息拉取 + 工具行折叠
 │   └── package.json
@@ -53,6 +53,9 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 # 打开 http://127.0.0.1:8000/healthz
+
+# 另开一个终端：长期记忆提取 worker（需要 API_KEY）
+python -m app.workers.memory
 ```
 
 ### 前端
@@ -146,6 +149,7 @@ PY
 2. 实现 `api/documents.py`：上传、索引、收藏（上传暂未对外暴露）
 3. 后台补齐：run 回放、访客画像报表、每日配额（登录用户）
 4. 补齐 `mcp_server.py` 的工具与 `/mcp` HTTP 挂载
-5. 代码执行等新工具：`agent/tools.py` 加一条 schema + `execute()` 加一个分支
+5. 记忆：访客 TTL 清理任务、Alembic 迁移、后台统计
+6. 代码执行等新工具：`agent/tools.py` 加一条 schema + `execute()` 加一个分支
 
 设计文档见 `docs/architecture.md`。

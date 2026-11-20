@@ -14,6 +14,7 @@ from uuid import uuid4
 from ..config import settings
 from ..services.history import load_history
 from ..services.llm import stream_with_tools
+from ..services.memory import load_memory_context
 from ..rag.retrieve import retrieve
 from . import tools as tool_registry
 from .context import build_messages
@@ -59,7 +60,12 @@ class AgentRuntime:
             {"filename": c.filename, "page": c.page, "text": c.text}
             for c in retrieve(query, user_id=user_id, conversation_id=conversation_id)
         ]
-        messages = build_messages(query, history, rag_chunks=chunks)
+        # 记忆是增强项：数据库/记忆服务出问题时必须 fail-open，不能拖垮聊天
+        try:
+            memory_text = load_memory_context(owner_key or "", query)
+        except Exception:
+            memory_text = ""
+        messages = build_messages(query, history, rag_chunks=chunks, memory_text=memory_text)
         # 可用工具
         tools = tool_registry.available()
         self.messages = messages
