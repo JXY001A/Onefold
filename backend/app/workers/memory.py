@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from openai import OpenAI
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select
 
 from ..config import settings
@@ -61,6 +61,23 @@ class CardOp(BaseModel):
             raise ValueError("card value must not be null")
         return value
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_shape(cls, data: Any) -> Any:
+        """兼容模型偶尔返回的 id/type/content 旧形状，再做严格校验。"""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if "text" not in data and "content" in data:
+            data["text"] = data["content"]
+        if "key" not in data and "id" in data:
+            data["key"] = str(data["id"])[:64]
+        if "category" not in data:
+            data["category"] = str(data.get("type") or "other")[:32]
+        if "value" not in data:
+            data["value"] = data.get("content", data.get("text"))
+        return data
+
 
 class NoteOp(BaseModel):
     """模型返回的一条笔记；text 必须是短背景，不是整段对话。
@@ -75,6 +92,19 @@ class NoteOp(BaseModel):
     happened_at: datetime | None = None
     source_message_id: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_shape(cls, data: Any) -> Any:
+        """兼容模型把 note 正文写成 content 的情况。"""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if "text" not in data and "content" in data:
+            data["text"] = data["content"]
+        if "category" not in data:
+            data["category"] = str(data.get("type") or "other")[:32]
+        return data
+
 
 class ExtractionResult(BaseModel):
     """一次提取的完整结果，对应模型返回的 {"cards": [...], "notes": [...]}。"""
@@ -82,6 +112,39 @@ class ExtractionResult(BaseModel):
     cards: list[CardOp] = Field(default_factory=list)
     notes: list[NoteOp] = Field(default_factory=list)
 
+
+class MemorySchemaError(RuntimeError):
+    """模型两次输出都不符合 schema；重试也不会好，直接标记 failed。"""
+
+
+# 直接由 Pydantic 生成字段约束，避免 prompt 和模型字段漂移
+EXTRACTION_SCHEMA = json.dumps(
+    ExtractionResult.model_json_schema(), ensure_ascii=False, indent=2
+)
+
+EXTRACTION_EXAMPLE = """{
+  "cards": [
+    {
+      "action": "upsert",
+      "category": "profile",
+      "key": "name",
+      "value": "金显昱",
+      "text": "姓名：金显昱",
+      "confidence": 0.95,
+      "source_message_id": "msg-1"
+    }
+  ],
+  "notes": [
+    {
+      "action": "add",
+      "category": "project",
+      "text": "用户在做 Onefold 平台。",
+      "confidence": 0.8,
+      "happened_at": null,
+      "source_message_id": "msg-2"
+    }
+  ]
+}"""
 
 SYSTEM_PROMPT = """你是用户长期记忆提取器。只提取用户明确说过或明确确认过的信息。
 
@@ -135,8 +198,17 @@ def _build_messages(owner_key: str, turns: list[dict[str, str]], priority: int) 
         if priority >= 10
         else ""
     )
+    schema_rules = (
+        "\n\n输出必须严格符合以下 JSON Schema：\n"
+        + EXTRACTION_SCHEMA
+        + "\n\n禁止使用 id、type、content 等未定义字段。"
+        "card 必须有 category、key、value、text、source_message_id；"
+        "note 必须有 text、source_message_id。"
+        "\n示例：\n"
+        + EXTRACTION_EXAMPLE
+    )
     return [
-        {"role": "system", "content": SYSTEM_PROMPT + user_note},
+        {"role": "system", "content": SYSTEM_PROMPT + user_note + schema_rules},
         {
             "role": "user",
             "content": (
@@ -148,30 +220,63 @@ def _build_messages(owner_key: str, turns: list[dict[str, str]], priority: int) 
     ]
 
 
-def _extract(owner_key: str, turns: list[dict[str, str]], priority: int) -> ExtractionResult:
-    """同步调用 DeepSeek；worker 是独立进程，阻塞这里不影响 Web。"""
-    if not settings.api_key:
-        raise RuntimeError("API_KEY is not set")
-
-    # 复用一个 client 实例即可；60s 超时防止网络抖动把 worker 线程挂死
-    client = OpenAI(api_key=settings.api_key, base_url=settings.base_url, timeout=60)
+def _call_model(client: OpenAI, messages: list[dict], temperature: float) -> str:
+    """调一次 DeepSeek，返回原始 JSON 字符串。"""
     response = client.chat.completions.create(
         model=settings.model,
-        messages=_build_messages(owner_key, turns, priority),
-        # 提取任务需要稳定输出，温度压低到配置值
-        temperature=settings.memory_prompt_temperature,
-        # 强制 JSON 模式，避免模型输出解释文字导致解析失败
+        messages=messages,
+        temperature=temperature,
+        # JSON mode 只保证“语法合法”，字段仍由 prompt + Pydantic 约束
         response_format={"type": "json_object"},
     )
-    content = (response.choices[0].message.content or "{}").strip()
-    # 有些兼容端点会把 JSON 包在 ```json 围栏里，先剥掉再解析
+    return (response.choices[0].message.content or "{}").strip()
+
+
+def _parse_result(content: str) -> ExtractionResult:
+    """剥掉可能的 ```json 围栏，再做严格字段校验。"""
+    content = content.strip()
     if content.startswith("```"):
         content = content.strip("`")
         if content.startswith("json"):
             content = content[4:]
-    # 用 Pydantic 解析并校验：{} 里的 cards/notes 会被转成 CardOp/NoteOp，
-    # 字段缺失或类型不符直接抛 ValidationError，由 worker_loop 捕获后走失败重试
     return ExtractionResult.model_validate_json(content)
+
+
+def _extract(owner_key: str, turns: list[dict[str, str]], priority: int) -> ExtractionResult:
+    """同步调用 DeepSeek；失败时带着错误信息修复一次。"""
+    if not settings.api_key:
+        raise RuntimeError("API_KEY is not set")
+
+    client = OpenAI(api_key=settings.api_key, base_url=settings.base_url, timeout=60)
+    messages = _build_messages(owner_key, turns, priority)
+    content = _call_model(client, messages, settings.memory_prompt_temperature)
+
+    try:
+        return _parse_result(content)
+    except ValidationError as first_error:
+        # 把模型自己的输出和 Pydantic 错误回给它，要求只修 JSON；
+        # 修复后仍失败说明不是偶发漂移，直接交给 worker 标记 invalid_schema。
+        errors = json.dumps(first_error.errors(), ensure_ascii=False, default=str)
+        repair_messages = messages + [
+            {"role": "assistant", "content": content},
+            {
+                "role": "user",
+                "content": (
+                    "上一次输出不符合 schema，错误如下：\n"
+                    f"{errors}\n\n"
+                    "请只输出修正后的 JSON，不要解释；"
+                    "字段必须严格使用 schema 中定义的 category/key/value/text/"
+                    "source_message_id 等名称。"
+                ),
+            },
+        ]
+        try:
+            repaired = _call_model(client, repair_messages, 0.0)
+            return _parse_result(repaired)
+        except ValidationError as second_error:
+            raise MemorySchemaError(
+                f"schema invalid after repair: {second_error}"
+            ) from second_error
 
 
 def process_job(job: dict[str, Any]) -> None:
@@ -242,6 +347,16 @@ def worker_loop(worker_id: str, stop_event: threading.Event) -> None:
         # 处理任务
         try:
             process_job(job)
+        except MemorySchemaError as exc:
+            # 模型两次都输出错字段，重试同一 prompt 也不会好；直接 failed 供排查
+            logger.exception("memory job %s invalid schema", job.get("id"))
+            fail_memory_job(
+                job["id"],
+                f"{type(exc).__name__}: {exc}",
+                int(job.get("attempts") or 1),
+                force=True,
+                result="invalid_schema",
+            )
         # 处理失败就重试
         except Exception as exc:  # noqa: BLE001
             logger.exception("memory job %s failed", job.get("id"))
