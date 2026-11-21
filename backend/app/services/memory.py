@@ -13,7 +13,16 @@ from sqlalchemy import func, select, text as sql_text, update
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import MemoryEvent, MemoryItem, MemoryJob, MemorySetting, Message, Run, now
+from ..models import (
+    Conversation,
+    MemoryEvent,
+    MemoryItem,
+    MemoryJob,
+    MemorySetting,
+    Message,
+    Run,
+    now,
+)
 
 # 卡片类别在注入时的中文标签；未知类别回退到 other
 CATEGORY_LABELS = {
@@ -635,6 +644,50 @@ def _serialize(item: MemoryItem) -> dict[str, Any]:
         "happened_at": item.happened_at.isoformat() if item.happened_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
+
+
+def get_memory_snapshot(conversation_id: str, owner_key: str, query: str) -> str:
+    """读取会话级记忆快照；旧会话首次进入时懒生成一次。"""
+    db = SessionLocal()
+    try:
+        conv = db.get(Conversation, conversation_id)
+        if conv is None or conv.owner_key != owner_key:
+            return ""
+        if conv.memory_snapshot_at is not None:
+            return conv.memory_snapshot or ""
+
+        snapshot = load_memory_context(owner_key, query)
+        # 条件更新：并发进入同一旧会话时只让一个请求写入
+        result = db.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.memory_snapshot_at.is_(None),
+            )
+            .values(memory_snapshot=snapshot, memory_snapshot_at=now())
+        )
+        db.commit()
+        if result.rowcount:
+            return snapshot
+        db.expire(conv)
+        return conv.memory_snapshot or ""
+    finally:
+        db.close()
+
+
+def invalidate_memory_snapshots(owner_key: str) -> int:
+    """用户编辑/删除/开关记忆后，让该 owner 的会话下次重新生成快照。"""
+    db = SessionLocal()
+    try:
+        result = db.execute(
+            update(Conversation)
+            .where(Conversation.owner_key == owner_key)
+            .values(memory_snapshot=None, memory_snapshot_at=None)
+        )
+        db.commit()
+        return int(result.rowcount or 0)
+    finally:
+        db.close()
 
 
 def list_memory(owner_key: str) -> dict[str, Any]:

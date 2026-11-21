@@ -29,7 +29,7 @@ from ..services.history import (
     get_or_create_conversation,
     save_transcript,
 )
-from ..services.memory import enqueue_memory_job, memory_enabled_for
+from ..services.memory import enqueue_memory_job, get_memory_snapshot, memory_enabled_for
 from ..services.quota import rounds_used
 from .deps import Principal, current_principal
 
@@ -175,7 +175,16 @@ async def chat(
                     )
 
                     run_id = create_run(principal.user_id, conversation_id)
-                    
+
+                    # 会话级记忆快照：整个会话复用，worker 更新记忆不影响进行中的对话
+                    try:
+                        memory_snapshot = get_memory_snapshot(
+                            conversation_id, principal.owner_key, body.message
+                        )
+                    except Exception:
+                        logger.exception("load memory snapshot failed: %s", conversation_id)
+                        memory_snapshot = ""
+
                     # 通知前端已开始执行。position 恒为 0 是骨架实现：
                     # 只有拿到许可才会走到这里，等价于已排到队首；
                     # 后续若实现真实队列，可改为真实的排队位置。
@@ -202,6 +211,7 @@ async def chat(
                         owner_key=principal.owner_key,
                         user_id=principal.user_id,
                         conversation_id=conversation_id,
+                        memory_text=memory_snapshot,
                     ):
                         yield _sse(event["type"], event["data"])
                     status = "done"

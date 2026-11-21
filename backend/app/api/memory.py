@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from ..services.memory import (
     clear_memory,
     delete_memory_item,
+    invalidate_memory_snapshots,
     list_memory,
     set_memory_enabled,
     update_memory_item,
@@ -42,6 +43,7 @@ def update_settings(
     principal: Principal = Depends(current_principal),
 ):
     set_memory_enabled(principal.owner_key, body.enabled)
+    invalidate_memory_snapshots(principal.owner_key)
     return {"ok": True, "enabled": body.enabled}
 
 
@@ -60,16 +62,20 @@ def update_item(
     )
     if item is None:
         raise HTTPException(404, "记忆不存在")
+    invalidate_memory_snapshots(principal.owner_key)
     return item
 
 
 @router.delete("")
 def clear_all(principal: Principal = Depends(current_principal)):
-    return {"ok": True, "deleted": clear_memory(principal.owner_key)}
+    deleted = clear_memory(principal.owner_key)
+    invalidate_memory_snapshots(principal.owner_key)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.delete("/{item_id}")
 def delete_item(item_id: str, principal: Principal = Depends(current_principal)):
     if not delete_memory_item(principal.owner_key, item_id):
         raise HTTPException(404, "记忆不存在")
+    invalidate_memory_snapshots(principal.owner_key)
     return {"ok": True}

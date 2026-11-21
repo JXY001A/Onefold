@@ -53,6 +53,7 @@ class AgentRuntime:
         owner_key: str | None = None,
         user_id: str | None = None,
         conversation_id: str | None = None,
+        memory_text: str | None = None,
     ):
         history = load_history(owner_key or "", conversation_id)
         # retrieve 目前是空骨架，返回 []；转成 dict 以免往下游传 dataclass
@@ -60,11 +61,12 @@ class AgentRuntime:
             {"filename": c.filename, "page": c.page, "text": c.text}
             for c in retrieve(query, user_id=user_id, conversation_id=conversation_id)
         ]
-        # 记忆是增强项：数据库/记忆服务出问题时必须 fail-open，不能拖垮聊天
-        try:
-            memory_text = load_memory_context(owner_key or "", query)
-        except Exception:
-            memory_text = ""
+        # 聊天层优先传会话快照；直接调用 Runtime 的旧路径才回退到实时读取
+        if memory_text is None:
+            try:
+                memory_text = load_memory_context(owner_key or "", query)
+            except Exception:
+                memory_text = ""
         messages = build_messages(query, history, rag_chunks=chunks, memory_text=memory_text)
         # 可用工具
         tools = tool_registry.available()
