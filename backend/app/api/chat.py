@@ -27,6 +27,7 @@ from ..services.history import (
     create_run,
     finish_run,
     get_or_create_conversation,
+    maybe_compact_history,
     save_transcript,
 )
 from ..services.memory import enqueue_memory_job, get_memory_snapshot, memory_enabled_for
@@ -35,6 +36,22 @@ from .deps import Principal, current_principal
 
 logger = logging.getLogger(__name__)
 _EXPLICIT_MEMORY = re.compile(r"记住|记一下|别忘|以后都|remember", re.IGNORECASE)
+
+# 保存后台任务引用，避免 asyncio 任务被 GC；完成后自动移除。
+_COMPACTION_TASKS: set[asyncio.Task] = set()
+
+
+def _schedule_history_compaction(conversation_id: str, owner_key: str) -> None:
+    """本轮结束后异步压缩旧历史，不阻塞 SSE 响应。"""
+    try:
+        task = asyncio.create_task(maybe_compact_history(conversation_id, owner_key))
+        _COMPACTION_TASKS.add(task)
+        # 任务完成时从集合中移除，避免内存泄漏。
+        # add_done_callback：Add a callback to be run when the future becomes done.
+        # _COMPACTION_TASKS.discard：Remove an element from a set if it is a member.
+        task.add_done_callback(_COMPACTION_TASKS.discard)
+    except RuntimeError:
+        logger.exception("schedule history compaction failed: %s", conversation_id)
 
 router = APIRouter()
 
@@ -255,6 +272,11 @@ async def chat(
                                     )
                             except Exception:
                                 logger.exception("enqueue memory job failed: run=%s", run_id)
+
+                        if status == "done" and conversation_id:
+                            _schedule_history_compaction(
+                                conversation_id, principal.owner_key
+                            )
 
                 # 走到这里说明执行正常结束（未超时、未取消）。
                 # async with 退出时自动释放身份锁，同一身份的下一个请求得以继续。
