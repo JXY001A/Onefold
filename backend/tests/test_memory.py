@@ -8,13 +8,16 @@ from sqlalchemy import delete
 from app.config import settings
 from app.db import SessionLocal
 from app.main import app
-from app.models import MemoryEvent, MemoryItem, MemoryJob, MemorySetting, now
+from app.models import Conversation, MemoryEvent, MemoryItem, MemoryJob, MemorySetting, now
+from app.services.history import get_or_create_conversation
 from app.services.memory import (
     apply_extraction,
     claim_memory_job,
     clear_memory,
     delete_memory_item,
     finish_memory_job,
+    get_memory_snapshot,
+    invalidate_memory_snapshots,
     list_memory,
     load_memory_context,
     set_memory_enabled,
@@ -130,6 +133,39 @@ def test_memory_setting_can_disable_injection():
         set_memory_enabled(owner, False)
         assert load_memory_context(owner, "职业") == ""
     finally:
+        _cleanup(owner)
+
+
+def test_memory_snapshot_is_frozen_until_invalidated():
+    owner = f"user:{uuid4()}"
+    try:
+        conversation_id = get_or_create_conversation(owner, title_seed="测试会话")
+        apply_extraction(
+            owner,
+            "run-snap-1",
+            [{"category": "preference", "key": "style", "value": "先结论", "text": "偏好：先结论", "confidence": 0.9}],
+            [],
+        )
+        first = get_memory_snapshot(conversation_id, owner, "回答风格")
+        assert "先结论" in first
+
+        # worker 更新记忆不改变已冻结的会话快照
+        apply_extraction(
+            owner,
+            "run-snap-2",
+            [{"category": "preference", "key": "style", "value": "先结论再展开", "text": "偏好：先结论再展开", "confidence": 0.9}],
+            [],
+        )
+        assert get_memory_snapshot(conversation_id, owner, "回答风格") == first
+
+        # 用户主动失效后，下一轮重建
+        assert invalidate_memory_snapshots(owner) >= 1
+        second = get_memory_snapshot(conversation_id, owner, "回答风格")
+        assert "先结论再展开" in second
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(Conversation).where(Conversation.owner_key == owner))
+            db.commit()
         _cleanup(owner)
 
 

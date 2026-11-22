@@ -21,7 +21,7 @@ import json
 import re
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..config import settings
 from ..db import SessionLocal
@@ -438,11 +438,22 @@ def create_run(user_id: str | None, conversation_id: str | None) -> str:
     run_id = str(uuid4())
     db = SessionLocal()
     try:
+        # 会话内轮次号：UUID 不适合做范围查询，turn_no 才是稳定排序依据
+        last_turn = (
+            db.scalar(
+                select(func.max(Run.turn_no)).where(
+                    Run.conversation_id == conversation_id
+                )
+            )
+            if conversation_id
+            else 0
+        )
         db.add(
             Run(
                 id=run_id,
                 user_id=user_id,
                 conversation_id=conversation_id,
+                turn_no=int(last_turn or 0) + 1,
                 status="running",
                 started_at=now(),
             )

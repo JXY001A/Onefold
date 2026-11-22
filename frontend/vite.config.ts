@@ -6,8 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://127.0.0.1:8000",
-      "/mcp": "http://127.0.0.1:8000",
+      // 本地后端固定跑 8001（8000 常被 IDE 预览占用），与 .vscode/launch.json 保持一致
+      "/api": "http://127.0.0.1:8001",
+      "/mcp": "http://127.0.0.1:8001",
     },
   },
 });

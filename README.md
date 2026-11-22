@@ -51,8 +51,9 @@ onefold/
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-# 打开 http://127.0.0.1:8000/healthz
+uvicorn app.main:app --reload --port 8001
+# 打开 http://127.0.0.1:8001/healthz
+# 端口固定 8001：8000 常被 IDE 预览占用，前端 vite proxy 也指向 8001
 
 # 另开一个终端：长期记忆提取 worker（需要 API_KEY）
 python -m app.workers.memory

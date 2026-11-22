@@ -110,6 +110,11 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     owner_key: Mapped[str] = mapped_column(String(80), index=True)
     title: Mapped[str | None] = mapped_column(String(128))
+    # 会话级记忆快照：整个会话复用，避免自动记忆更新打断 KV Cache
+    memory_snapshot: Mapped[str | None] = mapped_column(Text)
+    memory_snapshot_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 已压缩到哪一轮；为 0 表示还没压缩
+    summarized_until_turn_no: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
@@ -156,10 +161,15 @@ class Visit(Base):
 
 class Run(Base):
     __tablename__ = "runs"
+    __table_args__ = (
+        # 会话内单调递增的轮次号；UUID 不适合做范围查询
+        Index("uq_runs_conversation_turn", "conversation_id", "turn_no", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(36), index=True)
     conversation_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    turn_no: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(16), default="queued")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -306,6 +316,53 @@ class AuditLog(Base):
     detail_json: Mapped[dict | None] = mapped_column(JSON)
     ip: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ConversationSummary(Base):
+    """历史会话摘要：按 turn_no 区间生成，不可再压缩。"""
+
+    __tablename__ = "conversation_summaries"
+    __table_args__ = (
+        Index(
+            "uq_conversation_summaries_range",
+            "conversation_id",
+            "from_turn_no",
+            "to_turn_no",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), index=True)
+    owner_key: Mapped[str] = mapped_column(String(80), index=True)
+    from_turn_no: Mapped[int] = mapped_column(Integer)
+    to_turn_no: Mapped[int] = mapped_column(Integer)
+    from_run_id: Mapped[str | None] = mapped_column(String(36))
+    to_run_id: Mapped[str | None] = mapped_column(String(36))
+    summary: Mapped[str] = mapped_column(Text)
+    summary_tokens: Mapped[int | None] = mapped_column(Integer)
+    source_tokens: Mapped[int | None] = mapped_column(Integer)
+    model: Mapped[str | None] = mapped_column(String(64))
+    prompt_version: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class DocumentJob(Base):
+    """文档解析/嵌入任务队列，由 index-worker 处理。"""
+
+    __tablename__ = "document_jobs"
+    __table_args__ = (Index("ix_document_jobs_status_created", "status", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(36), index=True)
+    owner_key: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    stage: Mapped[str | None] = mapped_column(String(16))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MemorySetting(Base):

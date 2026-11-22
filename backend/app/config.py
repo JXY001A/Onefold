@@ -112,11 +112,22 @@ class Settings(BaseSettings):
     agent_max_steps: int = 10          # 单轮最多几轮工具循环,防死循环
     agent_tool_timeout_s: int = 15    # 单个工具执行超时(秒)
 
-    # ── 嵌入 / 重排(家里 4080 Infinity)───────────────────
-    embed_base_url: str = "http://127.0.0.1:7997"  # 向量化服务地址(本地/Tailscale)
-    embed_model: str = "BAAI/bge-m3"               # 嵌入模型名
-    rerank_base_url: str = "http://127.0.0.1:7997"  # 重排服务地址
-    rerank_model: str = "BAAI/bge-reranker-v2-m3"  # 重排模型名
+    # ── 嵌入 / 重排（在线 API，不在服务器加载模型）──────────
+    embed_provider: str = "openrouter"
+    embed_base_url: str = "https://openrouter.ai/api/v1"
+    embed_model: str = "baai/bge-m3"  # 以 OpenRouter 模型页实际 slug 为准
+    embed_dim: int = 1024
+    embed_batch_size: int = 32
+    embed_timeout_s: float = 30.0
+    openrouter_api_key: str = ""      # 与 DeepSeek api_key 分开
+    rerank_enabled: bool = False
+    rerank_model: str = ""
+
+    # ── RAG / 历史压缩 ──────────────────────────────────────
+    rag_enabled: bool = True
+    history_raw_runs: int = 4          # 最近保留的完整 run 数
+    history_compact_tokens: int = 6000 # 超过该 token 触发压缩
+    history_summary_max_tokens: int = 800
 
     # ── 并发与队列(详见 api/chat.py 的双层并发控制)──────────
     global_concurrency: int = 8  # 全局信号量名额:同时执行的 AgentRuntime 任务上限

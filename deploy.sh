@@ -66,19 +66,74 @@ chown -R 10001:10001 data 2>/dev/null || true
 docker compose exec -T db pg_dump -U onefold onefold > "data/backup/onefold-$(date +%Y%m%d%H%M%S).sql" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 4. 拉取镜像并重建容器
+# 4. 拉取镜像
 # ---------------------------------------------------------------------------
 # pull 允许失败：本地可能已有该镜像（重复部署），或 ACR 网络抖动。
 # 即使拉不到，下面的 up 仍会用本地已有镜像启动。
 docker compose pull || true
 
+# ---------------------------------------------------------------------------
+# 4.5 数据库迁移（必须在启动新 app 之前）
+# ---------------------------------------------------------------------------
+# 旧版本代码的 create_run 不会写 runs.turn_no；迁移把 turn_no 设为 NOT NULL
+# 后，如果旧 app 还在跑，新 run 会插入失败。因此先停 app/worker。
+# 迁移脚本已经随 Dockerfile 打进镜像。
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+  echo "==> migrate database"
+
+  # 首次部署时 db 可能还没起；先确保容器存在并等待健康
+  docker compose up -d db >/dev/null
+  for _ in $(seq 1 30); do
+    if docker compose exec -T db pg_isready -U onefold -d onefold >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  # 停旧 app / worker，避免迁移期间继续写旧结构
+  docker compose stop app memory-worker >/dev/null 2>&1 || true
+
+  # 先读当前 revision；命令失败和“空版本”要区分开
+  if ! CURRENT_OUT=$(docker compose run --rm -T app alembic current 2>&1); then
+    echo "$CURRENT_OUT"
+    echo "==> alembic current failed"
+    if [ -n "${PREV:-}" ]; then
+      TAG="$PREV" docker compose up -d app memory-worker >/dev/null 2>&1 || true
+    fi
+    exit 1
+  fi
+  CURRENT=$(printf '%s\n' "$CURRENT_OUT" | grep -Eo '^[0-9a-f]{12}' | head -n 1 || true)
+
+  # 已有库第一次接 Alembic：只 stamp 基线，不执行基线里的 CREATE TABLE
+  if [ -z "$CURRENT" ]; then
+    HAS_USERS=$(docker compose exec -T db psql -U onefold -d onefold -tAc \
+      "select to_regclass('public.users') is not null;" | tr -d '[:space:]')
+    if [ "$HAS_USERS" = "t" ]; then
+      echo "==> legacy database: stamp baseline"
+      docker compose run --rm -T app alembic stamp 317ce06e5e93
+    fi
+  fi
+
+  if ! docker compose run --rm -T app alembic upgrade head; then
+    echo "==> database migration failed"
+    # 迁移失败时尽量把旧版本拉回来；数据库结构由 PostgreSQL 事务回滚兜底
+    if [ -n "${PREV:-}" ]; then
+      TAG="$PREV" docker compose up -d app memory-worker >/dev/null 2>&1 || true
+    fi
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. 重建容器
+# ---------------------------------------------------------------------------
 # 按 compose 配置创建/替换容器。
 # -d 后台运行；配置未变化的服务（如 db、caddy）会被跳过，不会重启。
 # 这一步不写 || true —— 容器起不来就必须中断，继续探活没有意义。
 docker compose up -d
 
 # ---------------------------------------------------------------------------
-# 5. 探活：最多等待 60 秒（30 次 × 2 秒）
+# 6. 探活：最多等待 60 秒（30 次 × 2 秒）
 # ---------------------------------------------------------------------------
 # 探测的是 127.0.0.1:8000 而不是公网域名：绕过 Caddy，直接验证应用本身。
 # curl 的 -f 让 HTTP 4xx/5xx 也返回非 0，-sS 静默但保留错误输出。
@@ -93,7 +148,7 @@ for _ in $(seq 1 30); do
 done
 
 # ---------------------------------------------------------------------------
-# 6. 失败回滚
+# 7. 失败回滚
 # ---------------------------------------------------------------------------
 echo "healthcheck failed"
 if [ -n "$PREV" ]; then

@@ -49,6 +49,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 拷后端业务代码（约 242kB）。这一层几乎每次发布都会变化。
 COPY backend/app ./app
+# 迁移脚本必须进镜像，否则 docker compose run app alembic ... 找不到 alembic.ini
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/migrations ./migrations
 
 # 从阶段 1 取前端编译产物。--from=web 引用阶段名，
 # 只复制 dist 目录（约 541kB）；node_modules、node 二进制全部丢弃。
