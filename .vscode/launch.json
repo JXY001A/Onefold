@@ -2,16 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "FastAPI: 调试启动 (8000)",
+      "name": "FastAPI: 调试启动 (8001)",
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": ["app.main:app", "--port", "8000"],
+      "args": ["app.main:app", "--port", "8001"],
       "cwd": "${workspaceFolder}/backend",
       "justMyCode": true,
       "console": "integratedTerminal"
     },
     {
+      // 与上一个配置端口相同，二选一启动：热重载会多起一个子进程
       "name": "FastAPI: 调试启动 + 热重载 (8001)",
       "type": "debugpy",
       "request": "launch",
