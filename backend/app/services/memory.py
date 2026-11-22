@@ -515,10 +515,15 @@ def apply_extraction(
 def _card_score(item: MemoryItem) -> float:
     """卡片排序权重（不依赖 query）：固定 > 置信度高 > 新近 > 被多次提到/使用。"""
     return (
+        # pinned ：被用户强调记住的
         0.30 * (1.0 if item.pinned else 0.0)
+        # confidence 可信度
         + 0.20 * max(0.0, min(1.0, item.confidence))
+        # 上次被提及  或 最近更新时间
         + 0.15 * _recency(item.last_mentioned_at or item.updated_at)
+        # mention_count 提及次数
         + 0.20 * _log_weight(item.mention_count)
+        # usage_count 使用次数
         + 0.15 * _log_weight(item.usage_count)
     )
 
@@ -562,9 +567,11 @@ def load_memory_context(owner_key: str, query: str) -> str:
                 MemoryItem.status == "active",
             )
         ).scalars().all()
-
+        # key=_card_score 的意思是：key=lambda item: _card_score(item)
         cards = sorted(cards, key=_card_score, reverse=True)
+
         selected_cards: list[MemoryItem] = []
+
         per_category: dict[str, int] = {}
         for item in cards:
             category = item.category or "other"
@@ -573,6 +580,7 @@ def load_memory_context(owner_key: str, query: str) -> str:
                 continue
             selected_cards.append(item)
             per_category[category] = per_category.get(category, 0) + 1
+            # 达到上限后不再添加
             if len(selected_cards) >= settings.memory_cards_max:
                 break
 
