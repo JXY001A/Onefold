@@ -79,4 +79,5 @@ jobs:
           # 否则 compose 会退回 onefold:<sha>，pull 拉不到、up 起的还是旧镜像
           script: |
             cd /opt/onefold
-            TAG=${{ github.sha }} ONEFOLD_IMAGE=${{ env.IMAGE }} ./deploy.sh
+            # 用 bash 显式执行：scp 覆盖后可能丢失可执行位，直接 ./deploy.sh 会 permission denied
+            TAG=${{ github.sha }} ONEFOLD_IMAGE=${{ env.IMAGE }} bash ./deploy.sh

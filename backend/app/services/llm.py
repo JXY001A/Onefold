@@ -14,13 +14,25 @@ def get_client() -> AsyncOpenAI:
     )
 
 
-async def chat(messages: list[dict], tools: list[dict] | None = None):
+async def chat(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+):
+    """非流式调用；max_tokens/temperature 供历史摘要等内部任务使用。"""
     client = get_client()
+    extra: dict = {}
+    if max_tokens is not None:
+        extra["max_tokens"] = max_tokens
+    if temperature is not None:
+        extra["temperature"] = temperature
     return await client.chat.completions.create(
         model=settings.model,
         messages=messages,
         tools=tools or None,
         tool_choice="auto" if tools else None,
+        **extra,
     )
 
 
