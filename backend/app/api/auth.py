@@ -42,6 +42,7 @@ def send_email_code(body: EmailIn, request: Request, db: Session = Depends(get_d
     register 要求邮箱未注册（已注册就引导去登录）；
     reset 对未注册邮箱静默成功，避免被用来探测账号是否存在。
     """
+    # 邮箱已注册不允许再次注册
     exists = db.query(User.id).filter(User.email == body.email).first() is not None
     if body.purpose == "register" and exists:
         raise HTTPException(409, "该邮箱已注册，请直接登录")

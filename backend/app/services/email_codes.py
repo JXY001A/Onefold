@@ -46,9 +46,10 @@ def issue(db: Session, email: str, purpose: str, ip: str | None) -> str:
         )
     ).scalars().all()
     sent = [as_utc(t) for t in rows]
-
+    # email 发送频率限制
     if any(t > now - timedelta(seconds=settings.email_code_cooldown_s) for t in sent):
         raise TooManyRequests("验证码刚发过，请稍后再试")
+    # 一小时内仅允许发送 settings.email_code_hourly_max 数量的验证码
     hour_ago = now - timedelta(hours=1)
     if sum(1 for t in sent if t >= hour_ago) >= settings.email_code_hourly_max:
         raise TooManyRequests("获取过于频繁，请一小时后再试")
