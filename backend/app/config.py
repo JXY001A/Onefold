@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = False  # Cookie 是否仅走 HTTPS;线上必须为 True
 
     # ── 邮件 / 邮箱验证码 ─────────────────────────────────
-    # smtp_host 为空即 dev 模式:验证码写日志,并在响应里回传 dev_code 供本地联调。
+    # smtp_host 为空即 dev 模式:验证码写日志;仅非 prod 环境才在响应里回传 dev_code。
     # 配好下面几项后自动切真实发信,业务代码不用改。
     smtp_host: str = ""            # 例如 smtp.qq.com / smtp.163.com / smtp.gmail.com
     smtp_port: int = 465           # 465 = SSL;587 = STARTTLS(需 smtp_ssl=False)
