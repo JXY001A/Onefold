@@ -8,7 +8,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import admin, auth, chat, conversations, documents, mcp, memory, skills, visits
+from .api import (
+    admin,
+    auth,
+    chat,
+    conversations,
+    documents,
+    mcp,
+    memory,
+    skills,
+    visits,
+)
 from .config import settings
 from .db import init_db
 

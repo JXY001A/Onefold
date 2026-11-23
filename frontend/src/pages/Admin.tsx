@@ -1,27 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import RequestTable from "../components/admin/RequestTable";
 import NoAccess from "../components/admin/NoAccess";
 import UsageTable from "../components/admin/UsageTable";
 import UserTable from "../components/admin/UserTable";
 import { useAuth } from "../context/AuthContext";
 import {
-  approveRequest,
   changeRole,
   changeStatus,
-  fetchRequests,
   fetchUsage,
   fetchUsers,
-  type AccessRequest,
   type AdminUser,
   type UsageRow,
 } from "../lib/admin";
 import { canManageUsers, canUseAdmin } from "../lib/roles";
 
-type Tab = "users" | "requests" | "usage";
+type Tab = "users" | "usage";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "users", label: "用户" },
-  { key: "requests", label: "体验码申请" },
   { key: "usage", label: "用量" },
 ];
 
@@ -30,7 +25,6 @@ export default function Admin() {
   const { me, loading } = useAuth();
   const [tab, setTab] = useState<Tab>("users");
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [usage, setUsage] = useState<UsageRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +33,8 @@ export default function Admin() {
   const canManage = canManageUsers(me?.role);
 
   const reload = useCallback(async () => {
-    const [u, r, g] = await Promise.all([fetchUsers(), fetchRequests(), fetchUsage()]);
+    const [u, g] = await Promise.all([fetchUsers(), fetchUsage()]);
     setUsers(u);
-    setRequests(r);
     setUsage(g);
   }, []);
 
@@ -101,13 +94,6 @@ export default function Admin() {
           busy={busy}
           onRole={(id, role) => void run(() => changeRole(id, role))}
           onStatus={(id, status) => void run(() => changeStatus(id, status))}
-        />
-      )}
-      {tab === "requests" && (
-        <RequestTable
-          requests={requests}
-          busy={busy}
-          onApprove={(id) => void run(() => approveRequest(id))}
         />
       )}
       {tab === "usage" && <UsageTable rows={usage} />}

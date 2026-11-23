@@ -67,19 +67,6 @@ class EmailCode(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
-class AccessRequest(Base):
-    __tablename__ = "access_requests"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    name: Mapped[str | None] = mapped_column(String(64))
-    contact: Mapped[str | None] = mapped_column(String(128))
-    purpose: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(16), default="pending")
-    code: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
-    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class GuestSession(Base):
     """匿名访客身份：每个浏览器一条，30 天滑动续期（每次访问顺延 expires_at）。"""
 

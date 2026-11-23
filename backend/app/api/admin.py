@@ -1,13 +1,10 @@
-"""管理后台：审批、用户、用量、run 详情、存储。
+"""管理后台：用户、用量、run 详情、存储。
 
-权限分两层：
-    admin / superadmin  → 所有读接口（审批、用户列表、用量、run 详情、存储）
-    superadmin          → 额外可改角色、停用账号（超管角色本身只能手动改库）
-越权统一 403；角色变更写 audit_logs，便于事后追溯。
+权限分两层：admin/superadmin 读全部；superadmin 额外可改角色、停用账号
+（超管角色本身只能手动改库）。越权统一 403，角色变更写 audit_logs 便于追溯。
 """
 
 import os
-from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
@@ -17,10 +14,9 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import AccessRequest, AuditLog, Message, Run, ToolCall, UsageDaily, User
+from ..models import AuditLog, Message, Run, ToolCall, UsageDaily, User
 from .deps import Principal, require_role
 
-# 使用 router 将权限相关接口统一到 /api/admin 路由下
 router = APIRouter()
 
 # 两个校验依赖：读接口要 admin 起，写角色要 superadmin
@@ -47,44 +43,6 @@ def _audit(
             ip=request.client.host if request.client else None,
         )
     )
-
-
-# 获取访问请求列表
-@router.get("/requests")
-def list_requests(
-    _admin: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    rows = db.query(AccessRequest).order_by(AccessRequest.created_at.desc()).all()
-    return [
-        {
-            "id": r.id,
-            "name": r.name,
-            "contact": r.contact,
-            "purpose": r.purpose,
-            "status": r.status,
-            "code": r.code,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-        for r in rows
-    ]
-
-
-# 审批访问请求
-@router.post("/requests/{request_id}/approve")
-def approve_request(
-    request_id: str,
-    _admin: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    req = db.get(AccessRequest, request_id)
-    if not req:
-        raise HTTPException(404, "request not found")
-    req.status = "approved"
-    req.code = f"OF-{uuid4().hex[:8].upper()}"
-    req.decided_at = datetime.now(timezone.utc)
-    db.commit()
-    return {"ok": True, "code": req.code}
 
 
 # 获取用户列表（不含密码哈希）

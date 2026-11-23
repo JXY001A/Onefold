@@ -11,16 +11,6 @@ export type AdminUser = {
   created_at: string | null;
 };
 
-export type AccessRequest = {
-  id: string;
-  name: string | null;
-  contact: string | null;
-  purpose: string | null;
-  status: string;
-  code: string | null;
-  created_at: string | null;
-};
-
 export type UsageRow = {
   user_id: string;
   day: string;
@@ -59,14 +49,6 @@ export function changeStatus(id: string, status: "active" | "disabled"): Promise
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
-}
-
-export function fetchRequests(): Promise<AccessRequest[]> {
-  return call<AccessRequest[]>("/api/admin/requests");
-}
-
-export function approveRequest(id: string): Promise<unknown> {
-  return call(`/api/admin/requests/${id}/approve`, { method: "POST" });
 }
 
 export function fetchUsage(): Promise<UsageRow[]> {
