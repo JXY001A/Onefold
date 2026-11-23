@@ -11,6 +11,7 @@ from app.main import app
 from app.models import Conversation, MemoryEvent, MemoryItem, MemoryJob, MemorySetting, now
 from app.services.history import get_or_create_conversation
 from app.services.memory import (
+    CATEGORIES,
     apply_extraction,
     claim_memory_job,
     clear_memory,
@@ -20,6 +21,7 @@ from app.services.memory import (
     invalidate_memory_snapshots,
     list_memory,
     load_memory_context,
+    normalize_category,
     set_memory_enabled,
     update_memory_item,
 )
@@ -224,13 +226,31 @@ def test_legacy_extraction_shape_is_normalized():
         }
     )
     card = result.cards[0]
+    # 未知类型（personal_info）不在 13 类中文枚举里，按设计降级为「其他」，不阻断提取
     assert (card.category, card.key, card.value) == (
-        "personal_info",
+        "其他",
         "user-name",
         "姓名：金显昱",
     )
     assert card.text == "姓名：金显昱"
     assert result.notes[0].text == "用户在做 Onefold 平台。"
+
+
+def test_normalize_category_maps_aliases_and_falls_back():
+    # 中文枚举值原样保留（含两端空白）
+    for name in CATEGORIES:
+        assert normalize_category(name) == name
+        assert normalize_category(f"  {name} ") == name
+    # 历史英文值与常见别名统一归到对应中文类目
+    assert normalize_category("profile") == "身份"
+    assert normalize_category("Preference") == "偏好"
+    assert normalize_category("career") == "职业"
+    assert normalize_category("skills") == "技能"
+    assert normalize_category("hobby") == "兴趣"
+    # 认不出的值一律落到「其他」，不允许脏值进库
+    assert normalize_category("personal_info") == "其他"
+    assert normalize_category(None) == "其他"
+    assert normalize_category("") == "其他"
 
 
 def test_extract_repairs_invalid_schema_once(monkeypatch):

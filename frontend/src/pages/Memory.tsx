@@ -91,7 +91,8 @@ export default function Memory() {
     <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="mb-1 flex items-center gap-2 text-xs text-slate-500">
         <span className="rounded bg-slate-100 px-2 py-0.5">
-          {item.category ?? "other"}
+          {/* 分类统一用中文，兼容后端归一化后的值；空值兜底也用中文 */}
+          {item.category ?? "其他"}
         </span>
         {item.mention_count > 1 && <span>提到 {item.mention_count} 次</span>}
         {item.pinned && <span>已固定</span>}
