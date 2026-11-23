@@ -87,7 +87,15 @@ CI 通过 SSH 以同一用户执行，会复用这份凭据。
 
 ## 2. 生产 `.env`
 
-`/opt/onefold/.env`（compose 会自动读同目录 `.env` 做变量替换）：
+`/opt/onefold/.env`（compose 会自动读同目录 `.env` 做变量替换）。
+
+仓库根目录的 `server.env.example` 是完整模板，可直接复制后填值：
+
+```bash
+cp server.env.example /opt/onefold/.env
+```
+
+核心配置：
 
 ```bash
 ENV=prod
@@ -105,6 +113,24 @@ POSTGRES_PASSWORD=<强随机>
 
 API_KEY=<DeepSeek 生产 key>
 SEARCH_ENABLED=true
+
+# Embedding / rerank 都走 OpenRouter
+OPENROUTER_API_KEY=<OpenRouter key>
+EMBED_PROVIDER=openrouter
+EMBED_BASE_URL=https://openrouter.ai/api/v1
+EMBED_MODEL=BAAI/bge-m3
+EMBED_DIM=1024
+RERANK_ENABLED=true
+RERANK_MODEL=mongodb/rerank-3-lite
+
+RAG_ENABLED=true
+RAG_TOP_K=5
+RAG_LEXICAL_CANDIDATES=100
+RAG_BM25_TOP=50
+RAG_VECTOR_TOP=50
+RAG_RRF_K=60
+INDEX_WORKER_CONCURRENCY=1
+INDEX_MAX_ATTEMPTS=3
 
 SMTP_HOST=smtp.qq.com
 SMTP_PORT=465
@@ -269,6 +295,6 @@ docker compose start app
 ## 8. 已知边界
 
 - **单副本**：`GLOBAL_CONCURRENCY` / 单用户串行是进程内信号量，水平扩副本会让限流失效。要扩就得把限流挪到 Redis。
-- **文档/知识库**：`EMBED_BASE_URL` 默认指向家里 `100.64.0.10:7997`（Tailscale），当前代码尚未真正调用，不影响线上启动和聊天；接 RAG 时要么服务器加入 Tailscale，要么换成公网可达的推理服务。
-- **建表**：应用启动时 `create_all` 只建缺失的表，**不会给已有表加列**。以后改 `models.py` 需要配 Alembic 迁移，或手动 `ALTER TABLE`。
+- **文档/知识库**：embedding 与 rerank 默认走 OpenRouter（`EMBED_BASE_URL=https://openrouter.ai/api/v1`）；RAG 需要 `pgvector/pgvector:pg16` 与 `index-worker`，首次切换数据库镜像前先备份并跑迁移。
+- **建表**：应用启动时 `create_all` 只建缺失的表，**不会给已有表加列**。以后改 `models/` 下的表结构需要配 Alembic 迁移，或手动 `ALTER TABLE`。
 - **数据目录**：`./data` 整体挂到容器 `/data`，`/opt/onefold/data/backup` 里的 sql 会被后台的存储统计算进去，所以备份目录独立放在 `/opt/onefold/backup`。

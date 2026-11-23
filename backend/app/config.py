@@ -121,10 +121,19 @@ class Settings(BaseSettings):
     embed_timeout_s: float = 30.0
     openrouter_api_key: str = ""      # 与 DeepSeek api_key 分开
     rerank_enabled: bool = False
-    rerank_model: str = ""
+    rerank_model: str = "mongodb/rerank-3-lite"
 
     # ── RAG / 历史压缩 ──────────────────────────────────────
     rag_enabled: bool = True
+    rag_top_k: int = 5                  # 最终注入的父块数
+    rag_lexical_candidates: int = 100   # tsvector/pg_trgm 召回数
+    rag_bm25_top: int = 50              # BM25 候选重排后保留数
+    rag_vector_top: int = 50            # pgvector 召回数
+    rag_rrf_k: int = 60                 # RRF 融合参数
+    rag_child_chars: int = 500           # 子块字符上限
+    rag_parent_chars: int = 1600         # 父块字符上限
+    index_worker_concurrency: int = 1    # 4G 服务器首期串行解析
+    index_max_attempts: int = 3          # 文档索引最大重试次数
     history_raw_runs: int = 4          # 最近保留的完整 run 数
     history_compact_tokens: int = 6000 # 超过该 token 触发压缩
     history_summary_max_tokens: int = 800

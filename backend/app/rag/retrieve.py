@@ -1,31 +1,147 @@
-"""检索（骨架）：BM25 + 向量 + RRF + rerank。
-
-TODO:
-1. 分块后写入 chunks 表与 hnswlib 索引
-2. query → jieba 分词 → BM25 top-50
-3. query → bge-m3 → hnswlib top-50
-4. RRF(k=60) 融合 → bge-reranker-v2-m3 重排 → top_k
-5. 返回带 filename/page 的引用信息
-"""
+"""文档混合检索：词法 + 向量 + BM25 + RRF + 可选 rerank。"""
 
 from dataclasses import dataclass
+import logging
+
+from sqlalchemy.orm import Session
+
+from ..config import settings
+from ..db import SessionLocal
+from .bm25 import bm25_rank
+from .embed import embed_texts
+from .query import Candidate, lexical_candidates, load_parents, vector_candidates
+from .rerank import rerank
+from .rrf import rrf_fuse
+
+logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetrievedChunk:
     chunk_id: str
     document_id: str
     text: str
     filename: str = ""
     page: int | None = None
+    heading_path: str = ""
     score: float = 0.0
+    parent_id: str | None = None
+
+
+def _bm25_ids(query: str, candidates: list[Candidate]) -> list[str]:
+    """先做 BM25 候选重排；没有命中时保留词法原顺序。"""
+    ranked = bm25_rank(query, [c.text for c in candidates], settings.rag_bm25_top)
+    return [candidates[index].id for index, _ in ranked] or [c.id for c in candidates]
+
+
+def _rerank_ids(query: str, candidates: list[Candidate], limit: int) -> list[tuple[str, float]]:
+    """rerank 失败返回空列表，调用方继续使用 RRF。"""
+    ranked = rerank(
+        query,
+        [c.text for c in candidates],
+        [c.id for c in candidates],
+        top_n=limit,
+    )
+    return ranked or []
+
+
+def _expand(
+    candidates: list[Candidate],
+    rank_scores: dict[str, float],
+    parent_map: dict,
+    top_k: int,
+) -> list[RetrievedChunk]:
+    """命中 child 后返回 parent 文本；同一 parent 只保留一次。"""
+    out: list[RetrievedChunk] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        parent = parent_map.get(candidate.parent_id or "")
+        key = parent.id if parent else candidate.id
+        if key in seen:
+            continue
+        seen.add(key)
+        text = (parent.text if parent else candidate.text) or candidate.text
+        out.append(
+            RetrievedChunk(
+                chunk_id=candidate.id,
+                document_id=candidate.document_id,
+                text=text,
+                filename=candidate.filename,
+                page=candidate.page,
+                heading_path=candidate.heading_path,
+                score=rank_scores.get(candidate.id, candidate.score),
+                parent_id=parent.id if parent else candidate.parent_id,
+            )
+        )
+        if len(out) >= top_k:
+            break
+    return out
 
 
 def retrieve(
     query: str,
-    user_id: str | None = None,
+    owner_key: str,
     conversation_id: str | None = None,
-    top_k: int = 5,
+    top_k: int | None = None,
+    db: Session | None = None,
 ) -> list[RetrievedChunk]:
-    _ = (query, user_id, conversation_id, top_k)
-    return []
+    """检索文档片段；任何外部依赖失败都退化为可用的部分结果。"""
+    if not settings.rag_enabled or not query.strip() or not owner_key:
+        return []
+    top_k = max(1, top_k or settings.rag_top_k)
+    own_session = db is None
+    db = db or SessionLocal()
+    try:
+        lexical = lexical_candidates(
+            db, query, owner_key, conversation_id, settings.rag_lexical_candidates
+        )
+        vector: list[Candidate] = []
+        try:
+            vector = vector_candidates(
+                db,
+                embed_texts([query])[0],
+                owner_key,
+                conversation_id,
+                settings.rag_vector_top,
+            )
+        except Exception:
+            # 查询 embedding 失败时只用词法，不让聊天整体失败
+            vector = []
+
+        if not lexical and not vector:
+            return []
+
+        by_id = {candidate.id: candidate for candidate in lexical + vector}
+        lexical_ids = _bm25_ids(query, lexical) if lexical else []
+        vector_ids = [candidate.id for candidate in vector]
+        fused = rrf_fuse(
+            [lexical_ids, vector_ids],
+            k=settings.rag_rrf_k,
+            limit=max(top_k * 4, 20),
+        )
+        ordered = [by_id[item_id] for item_id, _ in fused if item_id in by_id]
+        scores = {item_id: score for item_id, score in fused}
+
+        # rerank 只对融合后的前 20 条做，失败就保持 RRF 顺序
+        if settings.rerank_enabled and ordered:
+            reranked = _rerank_ids(query, ordered[:20], top_k)
+            if reranked:
+                rerank_scores = dict(reranked)
+                ordered = sorted(
+                    ordered,
+                    key=lambda item: rerank_scores.get(item.id, -1),
+                    reverse=True,
+                )
+                scores.update(rerank_scores)
+
+        parent_map = load_parents(
+            db, [item.parent_id for item in ordered if item.parent_id]
+        )
+        return _expand(ordered, scores, parent_map, top_k)
+    except Exception:
+        # RAG 是聊天增强，不是主链路：数据库/扩展异常时退化为“无参考资料”
+        logger.exception("rag retrieve failed: owner=%s", owner_key)
+        return []
+    finally:
+        if own_session:
+            db.close()

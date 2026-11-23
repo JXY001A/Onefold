@@ -6,6 +6,9 @@ type Doc = {
   size: number;
   kind: string;
   status: string;
+  error: string | null;
+  page_count: number | null;
+  chunk_count: number;
   expires_at: string | null;
 };
 
@@ -25,6 +28,9 @@ export default function Documents() {
 
   useEffect(() => {
     load();
+    // 文档在后台解析/embedding：定时刷新状态，避免用户手动刷新
+    const timer = window.setInterval(load, 3000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const upload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -44,6 +50,11 @@ export default function Documents() {
 
   const collect = async (id: string) => {
     await fetch(`/api/documents/${id}/collect`, { method: "POST" });
+    load();
+  };
+
+  const retry = async (id: string) => {
+    await fetch(`/api/documents/${id}/retry`, { method: "POST" });
     load();
   };
 
@@ -78,9 +89,27 @@ export default function Documents() {
                 <tr key={d.id} className="border-t border-slate-100">
                   <td className="px-4 py-3">{d.filename}</td>
                   <td className="px-4 py-3">{d.kind}</td>
-                  <td className="px-4 py-3">{d.status}</td>
+                  <td className="px-4 py-3">
+                    <div>{d.status}</div>
+                    {d.status === "ready" && (
+                      <div className="text-xs text-slate-400">
+                        {d.chunk_count} 块
+                        {d.page_count ? ` · ${d.page_count} 页` : ""}
+                      </div>
+                    )}
+                    {d.error && (
+                      <div className="max-w-[220px] truncate text-xs text-red-500" title={d.error}>
+                        {d.error}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3">{Math.round(d.size / 1024)} KB</td>
                   <td className="space-x-2 px-4 py-3 text-right">
+                    {d.status === "failed" && (
+                      <button className="text-amber-700 underline" onClick={() => retry(d.id)}>
+                        重试
+                      </button>
+                    )}
                     {d.kind === "temp" && (
                       <button className="text-slate-600 underline" onClick={() => collect(d.id)}>
                         收藏

@@ -200,7 +200,14 @@ ssh root@<服务器IP> 'chmod +x /opt/onefold/deploy.sh'
 
 ### 3.5 生成 `.env` 密钥
 
-生产 `.env` 至少要有这些（模板见 `docs/deploy.md` 第 2 节）：
+生产 `.env` 可以直接复制仓库根目录的完整模板再填值：
+
+```bash
+cp server.env.example /opt/onefold/.env
+chmod 600 /opt/onefold/.env
+```
+
+至少确认这些：
 
 ```env
 ENV=prod
@@ -210,6 +217,12 @@ JWT_SECRET=<32 字节随机 hex>
 POSTGRES_PASSWORD=<随机串>
 COOKIE_SECURE=true
 API_KEY=<DeepSeek Key>
+OPENROUTER_API_KEY=<OpenRouter Key>
+EMBED_BASE_URL=https://openrouter.ai/api/v1
+EMBED_MODEL=BAAI/bge-m3
+RERANK_ENABLED=true
+RERANK_MODEL=mongodb/rerank-3-lite
+RAG_ENABLED=true
 SEARCH_ENABLED=true
 SMTP_HOST=...
 GUEST_MAX_ROUNDS=20

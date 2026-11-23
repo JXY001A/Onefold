@@ -22,12 +22,12 @@ onefold/
 │   │   ├── main.py             # FastAPI 入口
 │   │   ├── config.py           # 环境配置
 │   │   ├── db.py               # 数据库连接（PostgreSQL）
-│   │   ├── models.py           # 数据表
+│   │   ├── models/             # 数据表（account / chat / document / memory）
 │   │   ├── api/                # auth / chat / conversations / memory / documents / skills / admin / mcp
 │   │   ├── agent/              # ReAct 循环 + 上下文预算 + 工具注册表
 │   │   ├── rag/                # 分块 / 嵌入 / 索引 / 检索 / 重排
-│   │   ├── services/           # LLM / embeddings / 联网搜索 / 记忆 / 邮件 / 配额
-│   │   ├── workers/            # memory.py：长期记忆提取 worker
+│   │   ├── services/           # 业务能力层：记忆 / 历史 / LLM / 联网 / 邮件 / 配额，memory_* 与 history_* 按职责分文件
+│   │   ├── workers/            # memory*.py 记忆提取、document_index.py 文档建索引，共用 runner.py 进程骨架
 │   │   └── mcp_server.py       # MCP 服务入口（stdio）
 │   ├── tests/
 │   └── requirements.txt

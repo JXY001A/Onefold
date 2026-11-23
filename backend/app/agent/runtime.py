@@ -58,8 +58,17 @@ class AgentRuntime:
         history = load_history(owner_key or "", conversation_id)
         # retrieve 目前是空骨架，返回 []；转成 dict 以免往下游传 dataclass
         chunks = [
-            {"filename": c.filename, "page": c.page, "text": c.text}
-            for c in retrieve(query, user_id=user_id, conversation_id=conversation_id)
+            {
+                "filename": c.filename,
+                "page": c.page,
+                "heading_path": c.heading_path,
+                "text": c.text,
+            }
+            for c in retrieve(
+                query,
+                owner_key=owner_key or "",
+                conversation_id=conversation_id,
+            )
         ]
         # 聊天层优先传会话快照；直接调用 Runtime 的旧路径才回退到实时读取
         if memory_text is None:

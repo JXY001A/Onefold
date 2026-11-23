@@ -32,8 +32,22 @@ services:
       db:
         condition: service_healthy
 
+  index-worker:
+    build: .
+    image: ${ONEFOLD_IMAGE:-onefold}:${TAG:-latest}
+    restart: unless-stopped
+    # 文档解析 / embedding / 建索引；与 app 同镜像，不暴露 HTTP 端口
+    command: ["python", "-m", "app.workers.document_index"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://onefold:${POSTGRES_PASSWORD:-onefold}@db:5432/onefold
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
-    image: postgres:16-alpine
+    # pgvector 镜像基于 PostgreSQL 16，支持 vector/halfvec 类型
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: onefold

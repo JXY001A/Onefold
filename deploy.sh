@@ -91,14 +91,14 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
   done
 
   # 停旧 app / worker，避免迁移期间继续写旧结构
-  docker compose stop app memory-worker >/dev/null 2>&1 || true
+  docker compose stop app memory-worker index-worker >/dev/null 2>&1 || true
 
   # 先读当前 revision；命令失败和“空版本”要区分开
   if ! CURRENT_OUT=$(docker compose run --rm -T app alembic current 2>&1); then
     echo "$CURRENT_OUT"
     echo "==> alembic current failed"
     if [ -n "${PREV:-}" ]; then
-      TAG="$PREV" docker compose up -d app memory-worker >/dev/null 2>&1 || true
+      TAG="$PREV" docker compose up -d app memory-worker index-worker >/dev/null 2>&1 || true
     fi
     exit 1
   fi
@@ -118,7 +118,7 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
     echo "==> database migration failed"
     # 迁移失败时尽量把旧版本拉回来；数据库结构由 PostgreSQL 事务回滚兜底
     if [ -n "${PREV:-}" ]; then
-      TAG="$PREV" docker compose up -d app memory-worker >/dev/null 2>&1 || true
+      TAG="$PREV" docker compose up -d app memory-worker index-worker >/dev/null 2>&1 || true
     fi
     exit 1
   fi
