@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { register, type Me } from "../../lib/auth";
-import { PrimaryButton, TextInput } from "../ui/form";
+import { Field, PrimaryButton, TextInput } from "../ui/form";
 import CodeField from "./CodeField";
 
 type Props = {
@@ -32,10 +32,14 @@ export default function RegisterForm({ onDone }: Props) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-gutter-sm">
+    <form onSubmit={submit} className="space-y-gutter-md">
       <CodeField purpose="register" email={email} onEmail={setEmail} code={code} onCode={setCode} disabled={busy} />
-      <TextInput value={username} onChange={(e) => setUsername(e.target.value)} placeholder="昵称（可选，默认取邮箱前缀）" maxLength={32} />
-      <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="设置密码（至少 8 位）" autoComplete="new-password" />
+      <Field label="昵称（可选，默认取邮箱前缀）">
+        <TextInput value={username} onChange={(e) => setUsername(e.target.value)} placeholder="例如：周岚" maxLength={32} />
+      </Field>
+      <Field label="设置密码（至少 8 位）">
+        <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="至少 8 位" autoComplete="new-password" />
+      </Field>
       {error && <p className="font-body text-body-sm text-light-error dark:text-dark-error">{error}</p>}
       <PrimaryButton type="submit" disabled={busy || code.length !== 6 || password.length < 8} className="w-full">
         {busy ? "注册中…" : "注册并登录"}

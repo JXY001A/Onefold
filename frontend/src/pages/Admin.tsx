@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import NoAccess from "../components/admin/NoAccess";
 import UsageTable from "../components/admin/UsageTable";
 import UserTable from "../components/admin/UserTable";
+import PageWorkspace from "../components/pages/PageWorkspace";
+import { PageHeader, Tabs } from "../components/ui/kit";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import {
@@ -13,7 +15,6 @@ import {
   type UsageRow,
 } from "../lib/admin";
 import { canManageUsers, canUseAdmin } from "../lib/roles";
-import { EmptyText, PillTabs } from "../components/ui/kit";
 
 type Tab = "users" | "usage";
 
@@ -64,28 +65,40 @@ export default function Admin() {
     }
   };
 
-  if (loading) return <EmptyText className="py-section">加载中…</EmptyText>;
-  if (!allowed) return <NoAccess role={me?.role} />;
-
   return (
-    <div className="space-y-gutter-md">
-      <div className="flex flex-wrap items-center justify-between gap-gutter-sm">
-        <PillTabs tabs={TABS} active={tab} onChange={(k) => setTab(k as Tab)} />
-        <span className="font-label text-label-sm text-light-outline dark:text-dark-outline">
-          {canManage ? "超管：可改角色与停用账号" : "管理员：只读"}
-        </span>
-      </div>
-
-      {tab === "users" && (
-        <UserTable
-          users={users}
-          canManage={canManage}
-          busy={busy}
-          onRole={(id, role) => void run(() => changeRole(id, role))}
-          onStatus={(id, status) => void run(() => changeStatus(id, status))}
+    <PageWorkspace width="wide">
+      <div className="flex flex-col gap-gutter-lg">
+        <PageHeader
+          title="后台"
+          desc="查看团队成员角色状态与每日模型调用用量。"
+          actions={
+            allowed ? (
+              <span className="font-label text-label-sm text-light-outline dark:text-dark-outline">
+                {canManage ? "超管：可改角色与停用账号" : "管理员：只读"}
+              </span>
+            ) : undefined
+          }
         />
-      )}
-      {tab === "usage" && <UsageTable rows={usage} />}
-    </div>
+
+        {loading && <p className="py-section text-center font-label text-label-sm text-light-outline dark:text-dark-outline">加载中…</p>}
+        {!loading && !allowed && <NoAccess role={me?.role} />}
+
+        {!loading && allowed && (
+          <>
+            <Tabs tabs={TABS} active={tab} onChange={(k) => setTab(k as Tab)} />
+            {tab === "users" && (
+              <UserTable
+                users={users}
+                canManage={canManage}
+                busy={busy}
+                onRole={(id, role) => void run(() => changeRole(id, role))}
+                onStatus={(id, status) => void run(() => changeStatus(id, status))}
+              />
+            )}
+            {tab === "usage" && <UsageTable rows={usage} />}
+          </>
+        )}
+      </div>
+    </PageWorkspace>
   );
 }

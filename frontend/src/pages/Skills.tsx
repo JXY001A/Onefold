@@ -1,25 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
+import PageWorkspace from "../components/pages/PageWorkspace";
+import SkillInspector from "../components/skills/SkillInspector";
+import SkillList from "../components/skills/SkillList";
+import Icon from "../components/ui/Icon";
+import Soon from "../components/ui/Soon";
+import { PageHeader } from "../components/ui/kit";
 import { useToast } from "../context/ToastContext";
-import { apiRequest } from "../lib/http";
-import { ActionLink, EmptyText, PageHeader } from "../components/ui/kit";
-import { TableShell, Td, Th, THead } from "../components/ui/table";
+import { fetchSkills, setSkillEnabled, type Skill } from "../lib/skills";
 
-type Skill = {
-  id: string;
-  name: string;
-  version: string;
-  enabled: boolean;
-};
-
+/** Skill 管理（2.0 视觉壳 + 真实数据）：分类/新建/编辑/统计/Schema 按决议省略。 */
 export default function Skills() {
   const toast = useToast();
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setSkills(await apiRequest<Skill[]>("/api/skills"));
+      setSkills(await fetchSkills());
+      setError(null);
     } catch (exc) {
+      setError((exc as Error).message);
       toast.push("error", (exc as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, [toast]);
 
@@ -27,45 +33,45 @@ export default function Skills() {
     void load();
   }, [load]);
 
+  const activeId = skills.some((s) => s.id === selectedId) ? selectedId : skills[0]?.id ?? null;
+  const selected = skills.find((s) => s.id === activeId) ?? null;
+
   const toggle = async (skill: Skill) => {
+    if (busyId) return;
+    setBusyId(skill.id);
     try {
-      await apiRequest(`/api/skills/${skill.id}/enable`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !skill.enabled }),
-      });
+      await setSkillEnabled(skill.id, !skill.enabled);
       toast.push("success", skill.enabled ? `已停用「${skill.name}」` : `已启用「${skill.name}」`);
       await load();
     } catch (exc) {
       toast.push("error", (exc as Error).message);
+    } finally {
+      setBusyId(null);
     }
   };
 
   return (
-    <div className="space-y-gutter-md">
-      <PageHeader title="Skill" desc="启用的 Skill 按其 frontmatter 的 description 注入系统提示，正文由 agent 用 read_skill 工具按需读取。" />
+    <PageWorkspace aside={<SkillInspector skill={selected} />}>
+      <div className="flex flex-col gap-gutter-lg">
+        <PageHeader
+          title="Skill 管理"
+          desc="管理研究助手与多 Agent 可调用的标准化能力模块、触发规则与权限边界。"
+          actions={
+            <Soon tip="导入 Skill 随后开放" place="bottom">
+              <span className="inline-flex items-center gap-1.5 rounded border border-light-outline-variant px-gutter-md py-2 font-label text-label-md text-light-on-surface dark:border-dark-outline-variant dark:text-dark-on-surface">
+                <Icon name="upload_file" size={16} />
+                导入 Skill
+              </span>
+            </Soon>
+          }
+        />
 
-      <TableShell>
-        <THead>
-          <tr>
-            <Th>名称</Th>
-            <Th>版本</Th>
-            <Th>状态</Th>
-            <Th className="text-right">操作</Th>
-          </tr>
-        </THead>
-        <tbody>
-          {skills.map((s) => (
-            <tr key={s.id}>
-              <Td>{s.name}</Td>
-              <Td className="font-mono text-mono-sm">{s.version}</Td>
-              <Td className={s.enabled ? "text-light-primary dark:text-dark-primary" : "text-light-on-surface-variant dark:text-dark-on-surface-variant"}>{s.enabled ? "已启用" : "已停用"}</Td>
-              <Td className="text-right"><ActionLink onClick={() => void toggle(s)}>{s.enabled ? "停用" : "启用"}</ActionLink></Td>
-            </tr>
-          ))}
-          {skills.length === 0 && <tr><Td colSpan={4}><EmptyText className="py-gutter-md">还没有 Skill，先往 data/skills 放一个目录。</EmptyText></Td></tr>}
-        </tbody>
-      </TableShell>
-    </div>
+        {loading && <p className="py-section text-center font-label text-label-sm text-light-outline dark:text-dark-outline">加载中…</p>}
+        {!loading && error && <p className="py-section text-center font-label text-label-sm text-light-error dark:text-dark-error">{error}</p>}
+        {!loading && !error && (
+          <SkillList skills={skills} selectedId={activeId} busyId={busyId} onSelect={setSelectedId} onToggle={(s) => void toggle(s)} />
+        )}
+      </div>
+    </PageWorkspace>
   );
 }

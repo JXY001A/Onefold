@@ -63,6 +63,8 @@ docker compose version   # 需要 v2，输出 Docker Compose version v2.x
 
 ### 1.3 放 4 个配置文件
 
+首次部署手工放一次；之后 CI 每次发版会 scp 覆盖前三个，只有 `.env` 归你维护。
+
 ```bash
 mkdir -p /opt/onefold && cd /opt/onefold
 # 从仓库取这 4 个文件（仓库私有则用 scp 从本地上传）
@@ -70,6 +72,9 @@ mkdir -p /opt/onefold && cd /opt/onefold
 chmod +x deploy.sh
 cd /opt/onefold && ls   # 确认 4 个文件都在
 ```
+
+> CI 只同步 `docker-compose.yml` / `Caddyfile` / `deploy.sh`，不会碰 `.env`。
+> 这三个文件改了必须随仓库发布，否则会出现「镜像已更新、编排还是旧的」——例如 db 仍在跑 `postgres:16-alpine`，带 pgvector 的迁移会直接失败。
 
 `deploy.sh` 依赖宿主机 `curl` 做探活（`apt install -y curl` 已装）。
 
@@ -224,6 +229,7 @@ docker compose exec db psql -U onefold -d onefold -c \
 | 看 Caddy（证书/转发） | `docker compose logs -f --tail=200 caddy` |
 | 重启应用 | `docker compose restart app`（只是重启，不重读 .env） |
 | 改了 `.env` | `cd /opt/onefold && ./deploy.sh`（环境变量要重建容器，restart 不生效） |
+| 改了 compose / Caddyfile / deploy.sh | 直接发版：CI 会先 scp 覆盖 `/opt/onefold` 再执行；紧急情况可手工 scp 后跑 `./deploy.sh` |
 | 回滚到上一个版本 | 部署失败时 `deploy.sh` 会自动回滚；手动回滚见下 |
 | 当前部署的版本 | `cat /opt/onefold/.current_tag` |
 
@@ -239,6 +245,30 @@ TAG=<旧 sha> ONEFOLD_IMAGE=<镜像仓库地址>/onefold ./deploy.sh
 ```
 
 镜像 tag 用 `sha` + `latest` 双推，`sha` 用于精确回滚。
+
+### 5.1 数据库镜像切到 pgvector（一次性）
+
+`postgres:16-alpine` 与 `pgvector/pgvector:pg16` 的 `postgres` 用户 uid 不同（70 / 999），
+数据卷里的目录属主不会跟着变，直接重建 db 容器会报 `data directory has wrong ownership`。
+**先手工把服务器上的 compose 换成新版并改属主，再推送**，否则 CI 同步新 compose 后重建 db 会起不来：
+
+```bash
+cd /opt/onefold
+# 1) 备份，并记下数据卷名（从正在运行的 db 容器上取，不靠猜项目名）
+docker compose exec -T db pg_dump -U onefold onefold > data/backup/pre-pgvector-$(date +%F).sql
+VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' onefold-db-1)
+
+# 2) 停库 → 改属主 → 用新镜像拉起
+docker compose stop db
+docker run --rm -v "$VOL":/var/lib/postgresql/data alpine chown -R 999:999 /var/lib/postgresql/data
+docker compose up -d db
+
+# 3) 确认扩展文件已经可见（扩展本身由迁移创建）
+docker compose exec -T db psql -U onefold -d onefold \
+  -c "select name, default_version from pg_available_extensions where name='vector'"
+```
+
+数据本身兼容（同为 PG16），换镜像只是把扩展文件带进系统。
 
 ---
 
@@ -288,6 +318,8 @@ docker compose start app
 | 应用起不来，日志报 JWT | `ENV=prod` 但 `JWT_SECRET` 还是默认值 |
 | 登录后立刻掉线 | `COOKIE_SECURE=true` 但当前是 http 访问 |
 | 数据库认证失败 | 卷已初始化后改过 `POSTGRES_PASSWORD`，需在库内 `ALTER USER` |
+| 迁移报 `extension "vector" is not available` | db 还是 `postgres:16-alpine`：服务器上的 `docker-compose.yml` 没更新，按 5.1 切到 `pgvector/pgvector:pg16` |
+| db 起不来，日志报 `wrong ownership` | Alpine 与 Debian 的 postgres uid 不同（70 / 999），数据卷按 5.1 里 `chown -R 999:999` 对齐 |
 | 内存吃紧 / OOM | 本方案单副本、单 uvicorn worker（并发限流是进程内信号量，**不能扩副本**）；2G 内存建议加 1G swap |
 
 ---
@@ -295,6 +327,6 @@ docker compose start app
 ## 8. 已知边界
 
 - **单副本**：`GLOBAL_CONCURRENCY` / 单用户串行是进程内信号量，水平扩副本会让限流失效。要扩就得把限流挪到 Redis。
-- **文档/知识库**：embedding 与 rerank 默认走 OpenRouter（`EMBED_BASE_URL=https://openrouter.ai/api/v1`）；RAG 需要 `pgvector/pgvector:pg16` 与 `index-worker`，首次切换数据库镜像前先备份并跑迁移。
+- **文档/知识库**：embedding 与 rerank 默认走 OpenRouter（`EMBED_BASE_URL=https://openrouter.ai/api/v1`）；RAG 需要 `pgvector/pgvector:pg16` 与 `index-worker`，切换数据库镜像前先备份并按 5.1 对齐数据卷属主。
 - **建表**：应用启动时 `create_all` 只建缺失的表，**不会给已有表加列**。以后改 `models/` 下的表结构需要配 Alembic 迁移，或手动 `ALTER TABLE`。
 - **数据目录**：`./data` 整体挂到容器 `/data`，`/opt/onefold/data/backup` 里的 sql 会被后台的存储统计算进去，所以备份目录独立放在 `/opt/onefold/backup`。
