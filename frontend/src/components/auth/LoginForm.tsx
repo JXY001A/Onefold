@@ -1,10 +1,10 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { login, type Me } from "../../lib/auth";
+import { PrimaryButton, TextInput } from "../ui/form";
 
 type Props = {
   onDone: (me: Me) => void;
-  /** 重置密码成功后回填邮箱，省一次输入 */
   defaultAccount?: string;
 };
 
@@ -30,30 +30,13 @@ export default function LoginForm({ onDone, defaultAccount = "" }: Props) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <input
-        value={account}
-        onChange={(e) => setAccount(e.target.value)}
-        placeholder="邮箱"
-        autoComplete="username"
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
-      />
-      <input
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        type="password"
-        placeholder="密码"
-        autoComplete="current-password"
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
-      />
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <button
-        type="submit"
-        disabled={busy || !account.trim() || password.length < 8}
-        className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:bg-slate-400"
-      >
+    <form onSubmit={submit} className="space-y-gutter-sm">
+      <TextInput value={account} onChange={(e) => setAccount(e.target.value)} placeholder="邮箱" autoComplete="username" />
+      <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="密码" autoComplete="current-password" />
+      {error && <p className="font-body text-body-sm text-light-error dark:text-dark-error">{error}</p>}
+      <PrimaryButton type="submit" disabled={busy || !account.trim() || password.length < 8} className="w-full">
         {busy ? "登录中…" : "登录"}
-      </button>
+      </PrimaryButton>
     </form>
   );
 }

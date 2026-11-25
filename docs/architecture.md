@@ -21,10 +21,10 @@ Browser
 | `api/` | HTTP 契约；不写业务 |
 | `agent/` | 上下文预算、ReAct 循环、工具路由（`tools.py` = 工具注册表） |
 | `rag/` | 分块、嵌入、索引、检索、重排 |
-| `services/` | LLM / embeddings / search 的供应商适配；`services/memory.py` = 记忆读写；`services/tools/` = 联网搜索与网页抓取 |
-| `workers/` | `workers/memory.py` = 记忆提取 worker（独立进程） |
+| `services/` | 业务能力层，不感知 HTTP：LLM / 搜索适配、`tools/` 联网与抓取；`memory.py` / `history.py` 是域门面，实现拆在同前缀模块（`memory_*`、`history_*`） |
+| `workers/` | 后台独立进程，共用 `runner.py` 的进程骨架：`memory.py` 记忆提取、`document_index.py` 文档建索引（队列状态在 `services/memory_jobs.py` / `document_jobs.py`） |
 | `mcp_server.py` | MCP stdio 入口；HTTP 后续挂载 |
-| `models.py` | 数据表；PostgreSQL（timestamptz / 索引） |
+| `models/` | 数据表，按业务域分文件（account / chat / document / memory），`__init__.py` 统一导出；PostgreSQL（timestamptz / 索引） |
 
 ## 两个入口
 

@@ -1,5 +1,6 @@
 /** 会话相关的类型与请求封装。 */
 
+import { responseErrorText } from "./http";
 import type { ToolData } from "./tools";
 
 export type ToolRun = {
@@ -46,7 +47,7 @@ export async function fetchConversations(days = 20): Promise<Conversation[]> {
   const res = await fetch(`/api/conversations?days=${days}`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error(`加载会话列表失败: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`加载会话列表失败：${await responseErrorText(res)}`);
   const rows: ConversationRow[] = await res.json();
   return rows.map((r) => ({
     id: r.conversation_id,
@@ -100,7 +101,7 @@ export async function fetchMessages(conversationId: string): Promise<ChatMessage
     credentials: "include",
   });
   if (res.status === 404) throw new Error("会话不存在或无权访问");
-  if (!res.ok) throw new Error(`加载历史消息失败: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`加载历史消息失败：${await responseErrorText(res)}`);
   const rows: MessageRow[] = await res.json();
   return foldRows(rows);
 }

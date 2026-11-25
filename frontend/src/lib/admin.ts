@@ -1,5 +1,6 @@
 /** 后台接口封装：统一带 Cookie、统一解析后端 detail 错误。 */
 
+import { apiErrorText } from "./http";
 import type { Role } from "./roles";
 
 export type AdminUser = {
@@ -8,16 +9,6 @@ export type AdminUser = {
   email: string | null;
   role: Role;
   status: "active" | "disabled";
-  created_at: string | null;
-};
-
-export type AccessRequest = {
-  id: string;
-  name: string | null;
-  contact: string | null;
-  purpose: string | null;
-  status: string;
-  code: string | null;
   created_at: string | null;
 };
 
@@ -37,9 +28,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error((data as { detail?: string } | null)?.detail ?? `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(apiErrorText(data, res.status));
   return data as T;
 }
 
@@ -59,14 +48,6 @@ export function changeStatus(id: string, status: "active" | "disabled"): Promise
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
-}
-
-export function fetchRequests(): Promise<AccessRequest[]> {
-  return call<AccessRequest[]>("/api/admin/requests");
-}
-
-export function approveRequest(id: string): Promise<unknown> {
-  return call(`/api/admin/requests/${id}/approve`, { method: "POST" });
 }
 
 export function fetchUsage(): Promise<UsageRow[]> {

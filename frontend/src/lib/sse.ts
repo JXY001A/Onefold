@@ -1,3 +1,4 @@
+import { apiErrorText } from "./http";
 import type { ToolData } from "./tools";
 
 export type SSEEvent = { event: string; data: string; id?: string };
@@ -7,8 +8,17 @@ export class HttpError extends Error {
   status: number;
 
   constructor(status: number, body: string) {
-    super(`HTTP ${status}: ${body.slice(0, 200)}`);
+    super(apiErrorText(parseBody(body), status));
     this.status = status;
+  }
+}
+
+/** 错误体未必是 JSON，解不出就当没有 detail，交给状态码兑底。 */
+function parseBody(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
   }
 }
 

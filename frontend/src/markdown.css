@@ -1,0 +1,130 @@
+/* Chat 报告专属排版（作用域 .chat-report，避免影响其他页面）；取色于 index.css 主题变量 */
+.chat-report > *:first-child {
+  margin-top: 0;
+}
+.chat-report > *:last-child {
+  margin-bottom: 0;
+}
+.chat-report h1,
+.chat-report h2,
+.chat-report h3 {
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+  font-weight: 600;
+  color: var(--of-fg);
+}
+.chat-report h1 {
+  margin: 1.3em 0 0.5em;
+  font-size: 20px;
+  line-height: 28px;
+  letter-spacing: -0.2px;
+}
+.chat-report h2 {
+  margin: 1.4em 0 0.5em;
+  font-size: 18px;
+  line-height: 26px;
+  letter-spacing: -0.2px;
+}
+.chat-report h3 {
+  margin: 1.2em 0 0.4em;
+  font-size: 15px;
+  line-height: 22px;
+}
+.chat-report p {
+  margin: 0.6em 0;
+  font-size: 15px;
+  line-height: 27px;
+}
+.chat-report ul,
+.chat-report ol {
+  margin: 0.6em 0;
+  padding-left: 1.5em;
+  font-size: 15px;
+  line-height: 27px;
+}
+.chat-report ul {
+  list-style: disc;
+}
+.chat-report ol {
+  list-style: decimal;
+}
+.chat-report li {
+  margin: 0.25em 0;
+}
+.chat-report strong {
+  font-weight: 600;
+  color: var(--of-fg);
+}
+.chat-report code {
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: var(--of-container);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px;
+}
+.chat-report pre {
+  margin: 1em 0;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--of-container-low, var(--of-container));
+  border: 1px solid var(--of-outline);
+  overflow-x: auto;
+}
+.chat-report pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+.chat-report blockquote {
+  margin: 1em 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--of-primary);
+  color: var(--of-variant);
+}
+.chat-report table {
+  width: 100%;
+  margin: 1em 0;
+  border: 1px solid var(--of-outline);
+  border-radius: 8px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.chat-report thead {
+  background: var(--of-container);
+}
+.chat-report th {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--of-outline);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  text-align: left;
+  color: var(--of-variant);
+}
+.chat-report td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--of-outline);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  color: var(--of-fg);
+}
+.chat-report tr:last-child td {
+  border-bottom: 0;
+}
+.chat-report a {
+  color: var(--of-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-report hr {
+  margin: 1.4em 0;
+  border: none;
+  border-top: 1px solid var(--of-outline);
+}
+.chat-report input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: var(--of-primary);
+}

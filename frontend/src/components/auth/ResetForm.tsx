@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { resetPassword } from "../../lib/auth";
+import { PrimaryButton, TextInput } from "../ui/form";
+import { EmptyText } from "../ui/kit";
 import CodeField from "./CodeField";
 
 type Props = {
-  /** 成功后回传邮箱：切回登录页并预填 */
   onDone: (email: string) => void;
 };
 
@@ -32,34 +33,14 @@ export default function ResetForm({ onDone }: Props) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <p className="text-sm text-slate-600">
-        输入注册邮箱，收 6 位验证码；验证通过后直接设置新密码。
-      </p>
-      <CodeField
-        purpose="reset"
-        email={email}
-        onEmail={setEmail}
-        code={code}
-        onCode={setCode}
-        disabled={busy}
-      />
-      <input
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        type="password"
-        placeholder="新密码（至少 8 位）"
-        autoComplete="new-password"
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
-      />
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <button
-        type="submit"
-        disabled={busy || code.length !== 6 || password.length < 8}
-        className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:bg-slate-400"
-      >
+    <form onSubmit={submit} className="space-y-gutter-sm">
+      <EmptyText>输入注册邮箱，收 6 位验证码；验证通过后直接设置新密码。</EmptyText>
+      <CodeField purpose="reset" email={email} onEmail={setEmail} code={code} onCode={setCode} disabled={busy} />
+      <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="新密码（至少 8 位）" autoComplete="new-password" />
+      {error && <p className="font-body text-body-sm text-light-error dark:text-dark-error">{error}</p>}
+      <PrimaryButton type="submit" disabled={busy || code.length !== 6 || password.length < 8} className="w-full">
         {busy ? "提交中…" : "重置密码"}
-      </button>
+      </PrimaryButton>
     </form>
   );
 }

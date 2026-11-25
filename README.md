@@ -2,14 +2,14 @@
 
 > 万般能力，归一入口。一个云端 Agent 助手：研究检索、临时文档问答、长期记忆、Skill 按需加载、MCP 工具调用、流式回答。
 >
-> 当前状态：**架构骨架**。可运行的健康检查 + SSE 占位 + 前端聊天壳，业务逻辑按 TODO 填充。
+> 当前状态：**可运行**。流式聊天、工具调用、长期记忆、文档 RAG、邮箱账号与访客配额均已打通。
 
 ## 技术栈
 
 - 前端：React 19 + TypeScript + Vite + Tailwind + shadcn/ui（组件按需加）
 - 后端：Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + PostgreSQL 16
 - Agent：自写 ReAct 循环 + OpenAI SDK（DeepSeek 兼容端点）
-- RAG：jieba + rank_bm25 + hnswlib + bge-m3/reranker（4080 Infinity）
+- RAG：pypdf/python-docx 解析 + jieba/rank_bm25 词法 + pgvector 向量双路召回，RRF 融合后 rerank（OpenRouter 的 bge-m3 / rerank）
 - MCP：`mcp>=2`，同一服务双传输（stdio / Streamable HTTP）
 - 部署：Docker + Caddy + GitHub Actions + 阿里云 ACR
 
@@ -22,12 +22,12 @@ onefold/
 │   │   ├── main.py             # FastAPI 入口
 │   │   ├── config.py           # 环境配置
 │   │   ├── db.py               # 数据库连接（PostgreSQL）
-│   │   ├── models.py           # 数据表
+│   │   ├── models/             # 数据表（account / chat / document / memory）
 │   │   ├── api/                # auth / chat / conversations / memory / documents / skills / admin / mcp
 │   │   ├── agent/              # ReAct 循环 + 上下文预算 + 工具注册表
 │   │   ├── rag/                # 分块 / 嵌入 / 索引 / 检索 / 重排
-│   │   ├── services/           # LLM / embeddings / 联网搜索 / 记忆 / 邮件 / 配额
-│   │   ├── workers/            # memory.py：长期记忆提取 worker
+│   │   ├── services/           # 业务能力层：记忆 / 历史 / LLM / 联网 / 邮件 / 配额，memory_* 与 history_* 按职责分文件
+│   │   ├── workers/            # memory*.py 记忆提取、document_index.py 文档建索引，共用 runner.py 进程骨架
 │   │   └── mcp_server.py       # MCP 服务入口（stdio）
 │   ├── tests/
 │   └── requirements.txt
@@ -45,19 +45,32 @@ onefold/
 
 ## 本地运行
 
+### 前提
+
+- PostgreSQL 16 且已安装 **pgvector** 扩展（`docker compose` 用的 `pgvector/pgvector:pg16` 镜像自带；本地 brew 装的库需自行编译安装）
+- 根目录 `.env`：`cp .env.example .env`，至少填 `API_KEY`（聊天与联网工具）；文档索引还需要 `OPENROUTER_API_KEY`（embedding / rerank）
+
 ### 后端
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head          # 必跑：create_all 只建表不加列，换分支后缺列会直接报错
 uvicorn app.main:app --reload --port 8001
 # 打开 http://127.0.0.1:8001/healthz
 # 端口固定 8001：8000 常被 IDE 预览占用，前端 vite proxy 也指向 8001
-
-# 另开一个终端：长期记忆提取 worker（需要 API_KEY）
-python -m app.workers.memory
 ```
+
+另开终端跑后台 worker，两个都要、互不替代：
+
+```bash
+cd backend
+python -m app.workers.memory           # 长期记忆提取，需要 API_KEY
+python -m app.workers.document_index   # 文档解析与建索引，需要 OPENROUTER_API_KEY 且库已装 pgvector
+```
+
+VSCode 里可用 `.vscode/launch.json` 的「Worker: 长期记忆提取」「Worker: 文档索引」直接带断点调试。
 
 ### 前端
 
@@ -81,6 +94,7 @@ python -m app.mcp_server
 cp .env.example .env
 docker compose up --build
 # 打开 http://localhost
+# compose 会一起起 app / memory-worker / index-worker / db / caddy；两个 worker 不暴露端口
 ```
 
 生产部署（GitHub Actions + 阿里云 ACR + Caddy 自动 HTTPS）见 [docs/deploy.md](docs/deploy.md)；想看从创建 ACR 到上线的完整流程、原理与踩坑记录，见 [docs/deploy-walkthrough.md](docs/deploy-walkthrough.md)。

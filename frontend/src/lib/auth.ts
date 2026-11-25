@@ -1,5 +1,6 @@
 /** 身份与角色：与后端 /api/auth/* 一一对应。 */
 
+import { apiErrorText, responseErrorText } from "./http";
 import type { Role } from "./roles";
 
 export type { Role };
@@ -20,17 +21,6 @@ export type CodePurpose = "register" | "reset";
 type RegisterInput = { email: string; code: string; password: string; username?: string };
 type ResetInput = { email: string; code: string; password: string };
 
-/** FastAPI 的错误体可能是字符串，也可能是 pydantic 的 {msg} 数组。 */
-function detailMessage(data: unknown, status: number): string {
-  const detail = (data as { detail?: unknown } | null)?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail) && detail.length > 0) {
-    const first = detail[0] as { msg?: string };
-    if (first?.msg) return first.msg.replace("Value error, ", "");
-  }
-  return `HTTP ${status}`;
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -38,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(detailMessage(data, res.status));
+  if (!res.ok) throw new Error(apiErrorText(data, res.status));
   return data as T;
 }
 
@@ -78,7 +68,7 @@ export async function resetPassword(input: ResetInput): Promise<void> {
 /** 当前身份；既未登录、访客也已过期时后端返回 401。 */
 export async function fetchMe(): Promise<Me> {
   const res = await fetch("/api/auth/me", { credentials: "include" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error(await responseErrorText(res));
   return (await res.json()) as Me;
 }
 

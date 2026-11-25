@@ -1,9 +1,10 @@
 import { formatDate, type AdminUser } from "../../lib/admin";
 import { ROLE_LABEL } from "../../lib/roles";
+import { ActionLink, EmptyText } from "../ui/kit";
+import { TableShell, Td, Th, THead } from "../ui/table";
 
 type Props = {
   users: AdminUser[];
-  /** 只有超管能改角色/停用账号，与后端 require_superadmin 一致 */
   canManage: boolean;
   busy: boolean;
   onRole: (id: string, role: "member" | "admin") => void;
@@ -13,60 +14,44 @@ type Props = {
 /** 用户列表：管理员只看，超管多一列操作。 */
 export default function UserTable({ users, canManage, busy, onRole, onStatus }: Props) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-slate-50 text-xs text-slate-500">
-          <tr>
-            <th className="px-4 py-2">用户名</th>
-            <th className="px-4 py-2">邮箱</th>
-            <th className="px-4 py-2">角色</th>
-            <th className="px-4 py-2">状态</th>
-            <th className="px-4 py-2">注册时间</th>
-            {canManage && <th className="px-4 py-2 text-right">操作</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => {
-            const isSuper = u.role === "superadmin";
-            return (
-              <tr key={u.id} className="border-t border-slate-100">
-                <td className="px-4 py-3">{u.username}</td>
-                <td className="px-4 py-3 text-slate-500">{u.email ?? "—"}</td>
-                <td className="px-4 py-3">{ROLE_LABEL[u.role] ?? u.role}</td>
-                <td className={`px-4 py-3 ${u.status === "active" ? "" : "text-red-600"}`}>
-                  {u.status === "active" ? "正常" : "已停用"}
-                </td>
-                <td className="px-4 py-3 text-slate-500">{formatDate(u.created_at)}</td>
-                {canManage && (
-                  <td className="px-4 py-3 text-right">
-                    {isSuper ? (
-                      <span className="text-xs text-slate-400">超管只能在库里改</span>
-                    ) : (
-                      <div className="flex justify-end gap-3">
-                        <button
-                          disabled={busy}
-                          className="underline disabled:opacity-40"
-                          onClick={() => onRole(u.id, u.role === "admin" ? "member" : "admin")}
-                        >
-                          {u.role === "admin" ? "撤销管理员" : "设为管理员"}
-                        </button>
-                        <button
-                          disabled={busy}
-                          className="underline disabled:opacity-40"
-                          onClick={() => onStatus(u.id, u.status === "active" ? "disabled" : "active")}
-                        >
-                          {u.status === "active" ? "停用" : "启用"}
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {users.length === 0 && <p className="px-4 py-6 text-sm text-slate-500">暂无用户。</p>}
-    </div>
+    <TableShell>
+      <THead>
+        <tr>
+          <Th>用户名</Th>
+          <Th>邮箱</Th>
+          <Th>角色</Th>
+          <Th>状态</Th>
+          <Th>注册时间</Th>
+          {canManage && <Th className="text-right">操作</Th>}
+        </tr>
+      </THead>
+      <tbody>
+        {users.map((u) => {
+          const isSuper = u.role === "superadmin";
+          return (
+            <tr key={u.id}>
+              <Td>{u.username}</Td>
+              <Td className="text-light-on-surface-variant dark:text-dark-on-surface-variant">{u.email ?? "—"}</Td>
+              <Td>{ROLE_LABEL[u.role] ?? u.role}</Td>
+              <Td className={u.status === "active" ? "" : "text-light-error dark:text-dark-error"}>{u.status === "active" ? "正常" : "已停用"}</Td>
+              <Td className="text-light-on-surface-variant dark:text-dark-on-surface-variant">{formatDate(u.created_at)}</Td>
+              {canManage && (
+                <Td className="text-right">
+                  {isSuper ? (
+                    <span className="font-label text-label-sm text-light-outline dark:text-dark-outline">超管只能在库里改</span>
+                  ) : (
+                    <div className="flex justify-end gap-gutter-md">
+                      <ActionLink disabled={busy} onClick={() => onRole(u.id, u.role === "admin" ? "member" : "admin")}>{u.role === "admin" ? "撤销管理员" : "设为管理员"}</ActionLink>
+                      <ActionLink disabled={busy} tone={u.status === "active" ? "danger" : "primary"} onClick={() => onStatus(u.id, u.status === "active" ? "disabled" : "active")}>{u.status === "active" ? "停用" : "启用"}</ActionLink>
+                    </div>
+                  )}
+                </Td>
+              )}
+            </tr>
+          );
+        })}
+        {users.length === 0 && <tr><Td colSpan={canManage ? 6 : 5}><EmptyText className="py-gutter-md">暂无用户。</EmptyText></Td></tr>}
+      </tbody>
+    </TableShell>
   );
 }

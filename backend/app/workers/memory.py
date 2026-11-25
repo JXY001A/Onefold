@@ -3,25 +3,21 @@
 独立进程运行：
     python -m app.workers.memory
 不接收 HTTP，不与 Web 进程共享内存；所有协调都通过 PostgreSQL。
+
+拆分说明：
+    memory_schema.py   输出契约（Pydantic 模型 + prompt）
+    memory_extract.py  单次提取（调模型 + schema 修复）
+    runner.py          进程骨架（线程数、信号、收尾）
+    本文件             任务处理与轮询循环
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import signal
 import threading
-import time
-from datetime import datetime
-from typing import Any, Literal
-
-from openai import OpenAI
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
-from sqlalchemy import select
+from typing import Any
 
 from ..config import settings
-from ..db import SessionLocal, init_db
-from ..models import MemoryItem
 from ..services.memory import (
     apply_extraction,
     claim_memory_job,
@@ -31,252 +27,21 @@ from ..services.memory import (
     requeue_stale_jobs,
     run_turns,
 )
+from .memory_extract import extract as _extract
+from .memory_schema import CardOp, ExtractionResult, MemorySchemaError, NoteOp
+from .runner import run_worker_process
 
 logger = logging.getLogger("onefold.memory_worker")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-
-class CardOp(BaseModel):
-    """模型返回的一张卡片；只接受 upsert，不在这里做删除。
-
-    category  身份/偏好/项目/约束/关系/其他
-    key       卡片的稳定标识（如 name、tech_stack），同一 key 视为同一事实
-    value     结构化值（JSON 可表达的任意类型），null 不合法
-    text      给人看的一句话描述，限制长度避免占满上下文
-    """
-
-    action: Literal["upsert"] = "upsert"
-    category: str = Field(min_length=1, max_length=32)
-    key: str = Field(min_length=1, max_length=64)
-    value: Any
-    text: str = Field(min_length=1, max_length=settings.memory_card_chars)
-    confidence: float = Field(default=0.8, ge=0, le=1)
-    source_message_id: str
-
-    @field_validator("value")
-    @classmethod
-    def value_not_null(cls, value: Any) -> Any:
-        # 卡片必须有值；null 卡片没有注入意义
-        if value is None:
-            raise ValueError("card value must not be null")
-        return value
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_shape(cls, data: Any) -> Any:
-        """兼容模型偶尔返回的 id/type/content 旧形状，再做严格校验。"""
-        if not isinstance(data, dict):
-            return data
-        data = dict(data)
-        if "text" not in data and "content" in data:
-            data["text"] = data["content"]
-        if "key" not in data and "id" in data:
-            data["key"] = str(data["id"])[:64]
-        if "category" not in data:
-            data["category"] = str(data.get("type") or "other")[:32]
-        if "value" not in data:
-            data["value"] = data.get("content", data.get("text"))
-        return data
-
-
-class NoteOp(BaseModel):
-    """模型返回的一条笔记；text 必须是短背景，不是整段对话。
-
-    happened_at 可选，用来保留「什么时候发生」这类时间信息。
-    """
-
-    action: Literal["add"] = "add"
-    category: str = Field(default="other", max_length=32)
-    text: str = Field(min_length=1, max_length=settings.memory_note_chars)
-    confidence: float = Field(default=0.8, ge=0, le=1)
-    happened_at: datetime | None = None
-    source_message_id: str
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_shape(cls, data: Any) -> Any:
-        """兼容模型把 note 正文写成 content 的情况。"""
-        if not isinstance(data, dict):
-            return data
-        data = dict(data)
-        if "text" not in data and "content" in data:
-            data["text"] = data["content"]
-        if "category" not in data:
-            data["category"] = str(data.get("type") or "other")[:32]
-        return data
-
-
-class ExtractionResult(BaseModel):
-    """一次提取的完整结果，对应模型返回的 {"cards": [...], "notes": [...]}。"""
-
-    cards: list[CardOp] = Field(default_factory=list)
-    notes: list[NoteOp] = Field(default_factory=list)
-
-
-class MemorySchemaError(RuntimeError):
-    """模型两次输出都不符合 schema；重试也不会好，直接标记 failed。"""
-
-
-# 直接由 Pydantic 生成字段约束，避免 prompt 和模型字段漂移
-EXTRACTION_SCHEMA = json.dumps(
-    ExtractionResult.model_json_schema(), ensure_ascii=False, indent=2
-)
-
-EXTRACTION_EXAMPLE = """{
-  "cards": [
-    {
-      "action": "upsert",
-      "category": "profile",
-      "key": "name",
-      "value": "金显昱",
-      "text": "姓名：金显昱",
-      "confidence": 0.95,
-      "source_message_id": "msg-1"
-    }
-  ],
-  "notes": [
-    {
-      "action": "add",
-      "category": "project",
-      "text": "用户在做 Onefold 平台。",
-      "confidence": 0.8,
-      "happened_at": null,
-      "source_message_id": "msg-2"
-    }
-  ]
-}"""
-
-SYSTEM_PROMPT = """你是用户长期记忆提取器。只提取用户明确说过或明确确认过的信息。
-
-规则：
-1. 用户的话是主要证据；助手的话只用于理解上下文，不能单独成为用户事实。
-2. 不保存搜索结果、工具输出、临时任务进度、模型推测。
-3. 稳定事实/偏好写 card；带原因、时间、人物、事件的写 note。
-4. 每条记忆必须给出 source_message_id，且必须是上下文中 role=user 的消息。
-5. 没有值得长期保留的信息时，返回 {"cards": [], "notes": []}；不要凑数。
-6. 候选信息已存在于当前卡片时，也返回空数组，不要重复写入。
-7. 不保存密码、API Key、身份证号、银行卡号等敏感信息。
-8. 只输出 JSON，不要输出解释。"""
-
-
-def _existing_cards(owner_key: str) -> list[dict[str, Any]]:
-    """给模型看当前卡片，便于判断重复/更新。
-
-    只取 status=active 的卡片，已软删除的不再送给模型；
-    返回精简字段（不含 id / 计数），减少 prompt 体积。
-    """
-    db = SessionLocal()
-    try:
-        rows = db.execute(
-            select(MemoryItem).where(
-                MemoryItem.owner_key == owner_key,
-                MemoryItem.kind == "card",
-                MemoryItem.status == "active",
-            )
-        ).scalars().all()
-        return [
-            {"category": r.category, "key": r.key, "value": r.value, "text": r.text}
-            for r in rows
-        ]
-    finally:
-        db.close()
-
-
-def _build_messages(owner_key: str, turns: list[dict[str, str]], priority: int) -> list[dict]:
-    """把最近对话和已有卡片拼成提取 prompt；显式记住会加一句强约束。
-
-    每条对话前缀标上 [message_id] 和角色，模型必须原样引用这个 id 作为证据，
-    后面的 process_job 会拿它去校验（只接受 role=user 的 id）。
-    """
-    # 拿到传入用户的现有卡片
-    cards = _existing_cards(owner_key)
-    conversation = "\n".join(
-        f"[{t['id']}] {t['role'].upper()}: {t['content']}" for t in turns
-    )
-    user_note = (
-        "\n用户明确要求记住这次内容，请优先提取；仍必须遵守证据规则。"
-        if priority >= 10
-        else ""
-    )
-    schema_rules = (
-        "\n\n输出必须严格符合以下 JSON Schema：\n"
-        + EXTRACTION_SCHEMA
-        + "\n\n禁止使用 id、type、content 等未定义字段。"
-        "card 必须有 category、key、value、text、source_message_id；"
-        "note 必须有 text、source_message_id。"
-        "\n示例：\n"
-        + EXTRACTION_EXAMPLE
-    )
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT + user_note + schema_rules},
-        {
-            "role": "user",
-            "content": (
-                f"当前卡片：\n{json.dumps(cards, ensure_ascii=False, default=str)}\n\n"
-                f"最近对话：\n{conversation}\n\n"
-                "请输出 JSON：{\"cards\": [...], \"notes\": [...]}"
-            ),
-        },
-    ]
-
-
-def _call_model(client: OpenAI, messages: list[dict], temperature: float) -> str:
-    """调一次 DeepSeek，返回原始 JSON 字符串。"""
-    response = client.chat.completions.create(
-        model=settings.model,
-        messages=messages,
-        temperature=temperature,
-        # JSON mode 只保证“语法合法”，字段仍由 prompt + Pydantic 约束
-        response_format={"type": "json_object"},
-    )
-    return (response.choices[0].message.content or "{}").strip()
-
-
-def _parse_result(content: str) -> ExtractionResult:
-    """剥掉可能的 ```json 围栏，再做严格字段校验。"""
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.strip("`")
-        if content.startswith("json"):
-            content = content[4:]
-    return ExtractionResult.model_validate_json(content)
-
-
-def _extract(owner_key: str, turns: list[dict[str, str]], priority: int) -> ExtractionResult:
-    """同步调用 DeepSeek；失败时带着错误信息修复一次。"""
-    if not settings.api_key:
-        raise RuntimeError("API_KEY is not set")
-
-    client = OpenAI(api_key=settings.api_key, base_url=settings.base_url, timeout=60)
-    messages = _build_messages(owner_key, turns, priority)
-    content = _call_model(client, messages, settings.memory_prompt_temperature)
-
-    try:
-        return _parse_result(content)
-    except ValidationError as first_error:
-        # 把模型自己的输出和 Pydantic 错误回给它，要求只修 JSON；
-        # 修复后仍失败说明不是偶发漂移，直接交给 worker 标记 invalid_schema。
-        errors = json.dumps(first_error.errors(), ensure_ascii=False, default=str)
-        repair_messages = messages + [
-            {"role": "assistant", "content": content},
-            {
-                "role": "user",
-                "content": (
-                    "上一次输出不符合 schema，错误如下：\n"
-                    f"{errors}\n\n"
-                    "请只输出修正后的 JSON，不要解释；"
-                    "字段必须严格使用 schema 中定义的 category/key/value/text/"
-                    "source_message_id 等名称。"
-                ),
-            },
-        ]
-        try:
-            repaired = _call_model(client, repair_messages, 0.0)
-            return _parse_result(repaired)
-        except ValidationError as second_error:
-            raise MemorySchemaError(
-                f"schema invalid after repair: {second_error}"
-            ) from second_error
+__all__ = [
+    "CardOp",
+    "ExtractionResult",
+    "MemorySchemaError",
+    "NoteOp",
+    "main",
+    "process_job",
+    "worker_loop",
+]
 
 
 def process_job(job: dict[str, Any]) -> None:
@@ -302,7 +67,7 @@ def process_job(job: dict[str, Any]) -> None:
 
     # 白名单：只有用户本人说过的话才能作为证据
     allowed_ids = {t["id"] for t in user_turns}
-    
+
     # 调用模型提取记忆
     result = _extract(owner_key, turns, int(job.get("priority") or 0))
 
@@ -332,6 +97,7 @@ def process_job(job: dict[str, Any]) -> None:
     else:
         result_name = "empty"
     finish_memory_job(job["id"], result_name, stats)
+
 
 # 参数都在线程启动的时候传入的
 def worker_loop(worker_id: str, stop_event: threading.Event) -> None:
@@ -365,48 +131,12 @@ def worker_loop(worker_id: str, stop_event: threading.Event) -> None:
 
 def main() -> None:
     """启动固定数量的 worker 线程；SIGTERM 时停止抢新任务。"""
-    # 建表兜底（首次部署或新增表时生效；不会改已有列结构）
-    init_db()
-    # 进程刚启动时把上次崩溃遗留在 running 状态的任务重新放回队列
-    stale = requeue_stale_jobs()
-    if stale:
-        logger.warning("requeued %s stale memory jobs", stale)
-    # 停止信号：所有线程都在等它，置位后各线程在下一次循环退出
-    stop_event = threading.Event()
-
-    def _stop(*_args) -> None:
-        logger.info("memory worker shutting down")
-        # 置位 stop_event 通知所有线程退出
-        stop_event.set()
-
-    # 捕获停止信号：正常退出时置位 stop_event
-    signal.signal(signal.SIGTERM, _stop)
-    # 捕获 Ctrl+C 退出时也置位 stop_event
-    signal.signal(signal.SIGINT, _stop)
-
-    # daemon=True：主线程退出时不阻塞进程结束
-    threads = [
-        # 创建 worker 线程
-        threading.Thread(
-            target=worker_loop,
-            args=(f"memory-worker-{i + 1}", stop_event),
-            daemon=True,
-            name=f"memory-worker-{i + 1}",
-        )
-        for i in range(max(1, settings.memory_worker_concurrency))
-    ]
-    for thread in threads:
-        thread.start()
-    logger.info("memory worker started: %s threads", len(threads))
-
-    # 主线程只做守护：每秒检查一次停止信号
-    try:
-        while not stop_event.is_set():
-            time.sleep(1)
-    finally:
-        # 给在途任务 30s 收尾时间，超时则随进程一起退出
-        for thread in threads:
-            thread.join(timeout=30)
+    run_worker_process(
+        name="memory-worker",
+        loop=worker_loop,
+        concurrency=settings.memory_worker_concurrency,
+        requeue_stale=requeue_stale_jobs,
+    )
 
 
 if __name__ == "__main__":

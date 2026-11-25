@@ -1,3 +1,5 @@
+import { responseErrorText } from "./http";
+
 let pending: Promise<void> | null = null;
 let ready = false;
 
@@ -7,7 +9,7 @@ async function createOrRenewGuest(): Promise<void> {
     method: "POST",
     credentials: "include",
   });
-  if (!res.ok) throw new Error(`创建访客会话失败: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`创建访客会话失败：${await responseErrorText(res)}`);
 }
 
 async function bootstrap(): Promise<void> {
@@ -19,7 +21,7 @@ async function bootstrap(): Promise<void> {
     if (data.kind === "guest") await createOrRenewGuest();
     return;
   }
-  if (me.status !== 401) throw new Error(`HTTP ${me.status}`);
+  if (me.status !== 401) throw new Error(await responseErrorText(me));
   await createOrRenewGuest();
 }
 

@@ -1,101 +1,51 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import type { ChangeEvent } from "react";
+import DocTable from "../components/documents/DocTable";
+import Icon from "../components/ui/Icon";
+import { EmptyText, PageHeader, PillTabs } from "../components/ui/kit";
+import { useAuth } from "../context/AuthContext";
+import { useDocuments } from "../hooks/useDocuments";
+import { canUseAdmin } from "../lib/roles";
 
-type Doc = {
-  id: string;
-  filename: string;
-  size: number;
-  kind: string;
-  status: string;
-  expires_at: string | null;
-};
+const TABS = [
+  { key: "personal", label: "个人知识库" },
+  { key: "public", label: "公共知识库" },
+] as const;
 
 export default function Documents() {
-  const [docs, setDocs] = useState<Doc[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { me } = useAuth();
+  const isAdmin = canUseAdmin(me?.role);
+  const { scope, setScope, docs, upload, remove, collect, retry, publish } = useDocuments();
 
-  const load = async () => {
-    try {
-      const res = await fetch("/api/documents");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setDocs(await res.json());
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  const pick = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) void upload(file, scope);
+    // 清空选择：同一个文件再次上传也能触发 change
+    event.target.value = "";
   };
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const upload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    await fetch("/api/documents", { method: "POST", body: fd });
-    e.target.value = "";
-    load();
-  };
-
-  const remove = async (id: string) => {
-    await fetch(`/api/documents/${id}`, { method: "DELETE" });
-    load();
-  };
-
-  const collect = async (id: string) => {
-    await fetch(`/api/documents/${id}/collect`, { method: "POST" });
-    load();
-  };
+  const canUpload = scope === "personal" || isAdmin;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">文档</h2>
-        <label className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm">
-          上传
-          <input type="file" className="hidden" onChange={upload} />
-        </label>
-      </div>
+    <div className="space-y-gutter-md">
+      <PageHeader
+        title="知识库"
+        desc="个人知识库可自由上传；公共知识库由管理员维护，普通用户只读。"
+        actions={
+          canUpload ? (
+            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-light-outline-variant px-gutter-md py-2 font-label text-label-md text-light-on-surface transition-colors hover:bg-light-surface-container-high dark:border-dark-outline-variant dark:text-dark-on-surface dark:hover:bg-dark-surface-container-high">
+              <Icon name="upload_file" size={16} />
+              {scope === "public" ? "上传公共文档" : "上传个人文档"}
+              <input type="file" className="hidden" onChange={pick} />
+            </label>
+          ) : undefined
+        }
+      />
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <PillTabs tabs={TABS.map((t) => ({ key: t.key, label: t.label }))} active={scope} onChange={(k) => setScope(k as "personal" | "public")} />
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        {docs.length === 0 ? (
-          <p className="p-6 text-sm text-slate-500">还没有文档，先上传一个 PDF / MD / TXT。</p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>
-                <th className="px-4 py-2">文件名</th>
-                <th className="px-4 py-2">类型</th>
-                <th className="px-4 py-2">状态</th>
-                <th className="px-4 py-2">大小</th>
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {docs.map((d) => (
-                <tr key={d.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3">{d.filename}</td>
-                  <td className="px-4 py-3">{d.kind}</td>
-                  <td className="px-4 py-3">{d.status}</td>
-                  <td className="px-4 py-3">{Math.round(d.size / 1024)} KB</td>
-                  <td className="space-x-2 px-4 py-3 text-right">
-                    {d.kind === "temp" && (
-                      <button className="text-slate-600 underline" onClick={() => collect(d.id)}>
-                        收藏
-                      </button>
-                    )}
-                    <button className="text-red-600 underline" onClick={() => remove(d.id)}>
-                      删除
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {scope === "public" && !isAdmin && <EmptyText>公共知识库由管理员维护，普通用户只读。</EmptyText>}
+
+      <DocTable docs={docs} scope={scope} isAdmin={isAdmin} onDelete={remove} onCollect={collect} onRetry={retry} onPublish={publish} />
     </div>
   );
 }
