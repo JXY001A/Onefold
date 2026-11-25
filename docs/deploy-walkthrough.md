@@ -198,6 +198,8 @@ scp .env                            root@<服务器IP>:/opt/onefold/
 ssh root@<服务器IP> 'chmod +x /opt/onefold/deploy.sh'
 ```
 
+> 只有首次需要手工传。之后 CI 每次发版会用 scp 覆盖前三个文件（见 6.4），`.env` 始终保持服务器上的版本。
+
 ### 3.5 生成 `.env` 密钥
 
 生产 `.env` 可以直接复制仓库根目录的完整模板再填值：
@@ -445,6 +447,15 @@ deploy:
   needs: build
   runs-on: ubuntu-latest
   steps:
+    - uses: actions/checkout@v4          # scp 要读 workspace，两个 job 不共享
+    - uses: appleboy/scp-action@v0.1.7   # 编排文件随代码同步
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
+        source: "docker-compose.yml,Caddyfile,deploy.sh"
+        target: /opt/onefold
+        overwrite: true
     - uses: appleboy/ssh-action@v1
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -452,8 +463,10 @@ deploy:
         key: ${{ secrets.SSH_KEY }}
         script: |
           cd /opt/onefold
-          TAG=${{ github.sha }} ONEFOLD_IMAGE=${{ env.IMAGE }} ./deploy.sh
+          TAG=${{ github.sha }} ONEFOLD_IMAGE=${{ env.IMAGE }} bash ./deploy.sh
 ```
+
+**为什么要在 deploy job 里 scp**：编排文件不在镜像里，只跑 `deploy.sh` 不会更新它们。漏传就会出现「新镜像 + 旧编排」：例如 `docker-compose.yml` 已把 db 换成 `pgvector/pgvector:pg16`，服务器上还是 `postgres:16-alpine`，`up -d db` 认为配置未变不会重建，迁移里的 `CREATE EXTENSION vector` 就报 `extension "vector" is not available`。
 
 `ONEFOLD_IMAGE` 必须传：compose 里镜像名是 `${ONEFOLD_IMAGE:-onefold}:${TAG:-latest}`，不传就退化成 `onefold:<sha>`，`compose pull` 拉不到，`up -d` 起的是**上一次的旧镜像**，而脚本可能依然认为成功 —— 典型的「部署了但没生效」。
 

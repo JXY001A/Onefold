@@ -70,6 +70,22 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # scp 要读 workspace 里的文件，deploy job 与 build job 不共享 workspace
+      - uses: actions/checkout@v4
+
+      # 编排文件必须跟代码一起上线：服务器上的 docker-compose.yml / Caddyfile / deploy.sh
+      # 不在镜像里，光跑 deploy.sh 不会更新它们，漏传就成了「新代码 + 旧编排」。
+      # 典型故障：db 仍是 postgres:16-alpine，迁移里的 CREATE EXTENSION vector 直接失败。
+      # .env 不同步，密钥只存在服务器上。
+      - uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "docker-compose.yml,Caddyfile,deploy.sh"
+          target: /opt/onefold
+          overwrite: true
+
       - uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
