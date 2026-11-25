@@ -80,6 +80,9 @@ export function useDocuments() {
     scope,
     setScope,
     docs: scope === "public" ? publicDocs : personal,
+    /** 2.0 知识库需要同时展示个人与公共列表（只读派生，不改变原契约） */
+    personalDocs: personal,
+    publicDocs,
     upload,
     remove: (doc: Doc) => run(() => deleteDoc(doc), "已删除"),
     collect: (id: string) => run(() => collectDoc(id), "已收藏到个人知识库"),

@@ -1,10 +1,10 @@
 import clsx from "clsx";
 import type { ReactNode, TdHTMLAttributes, ThHTMLAttributes } from "react";
 
-/** 表格外壳：圆角边框 + 横向滚动。 */
+/** 表格外壳：8px 圆角边框 + 横向滚动（Stitch 2.0）。 */
 export function TableShell({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-light-outline-variant bg-light-surface dark:border-dark-outline-variant dark:bg-dark-surface">
+    <div className="overflow-x-auto rounded border border-light-outline-variant bg-light-surface dark:border-dark-outline-variant dark:bg-dark-surface">
       <table className="w-full text-left font-body text-body-sm text-light-on-surface dark:text-dark-on-surface">{children}</table>
     </div>
   );

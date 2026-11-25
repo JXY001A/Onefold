@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { sendCode, type CodePurpose } from "../../lib/auth";
-import { fieldClass, GhostButton } from "../ui/form";
+import { Field, fieldClass, GhostButton } from "../ui/form";
 
 type Props = {
   purpose: CodePurpose;
@@ -51,36 +51,41 @@ export default function CodeField({
   };
 
   return (
-    <div className="space-y-gutter-sm">
-      <div className="flex gap-gutter-sm">
-        <input
-          value={email}
-          onChange={(e) => onEmail(e.target.value)}
-          type="email"
-          placeholder="邮箱"
-          autoComplete="email"
-          disabled={disabled}
-          className={`flex-1 ${fieldClass}`}
-        />
-        <GhostButton
-          type="button"
-          onClick={send}
-          disabled={disabled || sending || cooldown > 0 || !email.trim()}
-          className="shrink-0"
-        >
-          {cooldown > 0 ? `${cooldown}s 后重发` : sending ? "发送中…" : "获取验证码"}
-        </GhostButton>
-      </div>
+    <div className="space-y-gutter-md">
+      <label className="block">
+        <span className="mb-1 block font-label text-label-sm text-light-on-surface-variant dark:text-dark-on-surface-variant">邮箱</span>
+        <div className="flex gap-gutter-sm">
+          <input
+            value={email}
+            onChange={(e) => onEmail(e.target.value)}
+            type="email"
+            placeholder="name@example.com"
+            autoComplete="email"
+            disabled={disabled}
+            className={`flex-1 ${fieldClass}`}
+          />
+          <GhostButton
+            type="button"
+            onClick={send}
+            disabled={disabled || sending || cooldown > 0 || !email.trim()}
+            className="shrink-0"
+          >
+            {cooldown > 0 ? `${cooldown}s 后重发` : sending ? "发送中…" : "获取验证码"}
+          </GhostButton>
+        </div>
+      </label>
 
-      <input
-        value={code}
-        onChange={(e) => onCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-        inputMode="numeric"
-        placeholder="6 位验证码"
-        autoComplete="one-time-code"
-        disabled={disabled}
-        className={`tracking-[0.3em] ${fieldClass}`}
-      />
+      <Field label="6 位验证码">
+        <input
+          value={code}
+          onChange={(e) => onCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          inputMode="numeric"
+          placeholder="000000"
+          autoComplete="one-time-code"
+          disabled={disabled}
+          className={`tracking-[0.3em] ${fieldClass}`}
+        />
+      </Field>
 
       {hint && !error && <p className="font-label text-label-sm text-light-on-surface-variant dark:text-dark-on-surface-variant">{hint}</p>}
       {devCode && (

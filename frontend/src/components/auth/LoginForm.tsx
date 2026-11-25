@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { login, type Me } from "../../lib/auth";
-import { PrimaryButton, TextInput } from "../ui/form";
+import { Field, PrimaryButton, TextInput } from "../ui/form";
 
 type Props = {
   onDone: (me: Me) => void;
@@ -30,9 +30,13 @@ export default function LoginForm({ onDone, defaultAccount = "" }: Props) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-gutter-sm">
-      <TextInput value={account} onChange={(e) => setAccount(e.target.value)} placeholder="邮箱" autoComplete="username" />
-      <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="密码" autoComplete="current-password" />
+    <form onSubmit={submit} className="space-y-gutter-md">
+      <Field label="邮箱">
+        <TextInput value={account} onChange={(e) => setAccount(e.target.value)} placeholder="name@example.com" autoComplete="username" />
+      </Field>
+      <Field label="密码">
+        <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="输入密码" autoComplete="current-password" />
+      </Field>
       {error && <p className="font-body text-body-sm text-light-error dark:text-dark-error">{error}</p>}
       <PrimaryButton type="submit" disabled={busy || !account.trim() || password.length < 8} className="w-full">
         {busy ? "登录中…" : "登录"}
