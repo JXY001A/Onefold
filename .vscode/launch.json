@@ -24,6 +24,27 @@
       "subProcess": true
     },
     {
+      // 长期记忆 worker：轮询 memory_jobs，需要 API_KEY
+      // 不要在子进程里跑：worker 在主线程注册 SIGTERM/SIGINT
+      "name": "Worker: 长期记忆提取",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.workers.memory",
+      "cwd": "${workspaceFolder}/backend",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      // 文档索引 worker：轮询 document_jobs，需要 embedding 配置且本地库已装 pgvector
+      "name": "Worker: 文档索引",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.workers.document_index",
+      "cwd": "${workspaceFolder}/backend",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
       "name": "FastAPI: attach 到 5678",
       "type": "debugpy",
       "request": "attach",

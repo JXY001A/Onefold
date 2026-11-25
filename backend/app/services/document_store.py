@@ -7,6 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..models import Chunk, Document, DocumentJob, now
+from .knowledge_access import PUBLIC_KB_ID
 
 ALLOWED_SUFFIXES = {".pdf", ".md", ".markdown", ".txt", ".docx"}
 
@@ -33,10 +34,26 @@ def get_owned(db: Session, document_id: str, owner_key: str) -> Document | None:
     return doc
 
 
+def list_public(db: Session) -> list[Document]:
+    return list(
+        db.execute(
+            select(Document)
+            .where(Document.kb_id == PUBLIC_KB_ID, Document.status != "deleted")
+            .order_by(Document.created_at.desc())
+        ).scalars()
+    )
+
+
+def get_public(db: Session, document_id: str) -> Document | None:
+    doc = db.get(Document, document_id)
+    return doc if doc is not None and doc.kb_id == PUBLIC_KB_ID else None
+
+
 def create_document(
     db: Session,
     *,
     document_id: str,
+    kb_id: str,
     owner_key: str,
     user_id: str | None,
     conversation_id: str | None,
@@ -45,10 +62,12 @@ def create_document(
     size: int,
     mime: str | None,
     expires_at,
+    kind: str = "temp",
 ) -> Document:
     """保存元数据并入队；原始文件已由 API 写入磁盘。"""
     doc = Document(
         id=document_id,
+        kb_id=kb_id,
         owner_key=owner_key,
         user_id=user_id,
         conversation_id=conversation_id,
@@ -56,7 +75,7 @@ def create_document(
         path=path,
         size=size,
         mime=mime,
-        kind="temp",
+        kind=kind,
         status="uploaded",
         expires_at=expires_at,
     )

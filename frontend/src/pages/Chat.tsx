@@ -1,80 +1,93 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ChatInput from "../components/chat/ChatInput";
-import ConversationList from "../components/chat/ConversationList";
 import MessageList from "../components/chat/MessageList";
 import QuotaBar from "../components/chat/QuotaBar";
+import SourceInspector from "../components/chat/SourceInspector";
+import WorkspaceHeader from "../components/chat/WorkspaceHeader";
 import { useAuth } from "../context/AuthContext";
 import { useChatStream } from "../hooks/useChatStream";
-import { useConversations } from "../hooks/useConversations";
-import type { ChatMessage } from "../lib/chat";
+import { useWorkspace } from "../store/workspace";
 
+/** 研究工作区：中央报告画布 + 右侧来源检查器，会话/消息状态来自全局 store。 */
 export default function Chat() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const { me, refresh: refreshMe } = useAuth();
 
-  // 会话列表/历史加载与流式状态分开，页面只做编排
-  const convs = useConversations(setMessages);
+  const messages = useWorkspace((s) => s.messages);
+  const activeId = useWorkspace((s) => s.activeId);
+  const ready = useWorkspace((s) => s.ready);
+  const loading = useWorkspace((s) => s.loading);
+  const storeError = useWorkspace((s) => s.error);
+  const focusMode = useWorkspace((s) => s.focusMode);
+  const inspectorOpen = useWorkspace((s) => s.inspectorOpen);
+  const inspectorExpanded = useWorkspace((s) => s.inspectorExpanded);
+  const setMessages = useWorkspace((s) => s.setMessages);
+  const setActiveId = useWorkspace((s) => s.setActiveId);
+  const setRunning = useWorkspace((s) => s.setRunning);
+  const refresh = useWorkspace((s) => s.refresh);
+
   const { running, status, error, quotaExceeded, resetQuota, send, abort } = useChatStream({
     setMessages,
-    conversationId: convs.activeId,
-    onConversation: convs.setActiveId,
+    conversationId: activeId,
+    onConversation: setActiveId,
     onRoundDone: () => {
-      void convs.refresh();
+      void refresh();
       void refreshMe();
     },
   });
+
+  // 把流式运行状态同步到全局，左导航据此禁用切换
+  useEffect(() => {
+    setRunning(running);
+  }, [running, setRunning]);
 
   const handleSend = () => {
     const text = input.trim();
     if (!text) return;
     setInput("");
+    resetQuota();
     void send(text);
   };
 
-  const openConversation = (id: string) => {
-    if (running) return;
-    void convs.open(id);
-  };
-
-  const newChat = () => {
-    if (running) return;
-    convs.startNew();
-    setInput("");
-    resetQuota();
-  };
-
-  // 后端 403 或本地计数已满都算用完，避免多发一次注定失败的请求
   const exhausted = quotaExceeded || (me?.quota ? me.quota.used >= me.quota.limit : false);
+  // 检查器展开态：画布收窄至 740，输入区切换单行
+  const expandedView = inspectorOpen && inspectorExpanded && !focusMode;
 
   return (
-    <div className="flex flex-col gap-4 md:flex-row">
-      <ConversationList
-        conversations={convs.conversations}
-        activeId={convs.activeId}
-        disabled={running || !convs.ready}
-        onSelect={openConversation}
-        onNew={newChat}
-      />
+    <div className="chat-workspace flex min-w-0 flex-col lg:h-full lg:flex-row">
+      <section className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
+        <WorkspaceHeader />
 
-      <div className="flex-1 space-y-4">
-        <MessageList
-          messages={messages}
-          status={convs.loading ? "加载历史…" : status}
-          error={convs.error ?? error}
-        />
+        <div className="lg:min-h-0 lg:flex-1">
+          <MessageList
+            messages={messages}
+            status={loading ? "加载历史…" : status}
+            error={storeError ?? error}
+            onPick={setInput}
+            focus={focusMode}
+            expanded={expandedView}
+          />
+        </div>
+
         {me?.quota && (
-          <QuotaBar used={me.quota.used} limit={me.quota.limit} exhausted={exhausted} />
+          <div className="px-gutter-xl pb-gutter-sm">
+            <QuotaBar used={me.quota.used} limit={me.quota.limit} exhausted={exhausted} />
+          </div>
         )}
+
         <ChatInput
           value={input}
           onChange={setInput}
           onSend={handleSend}
           onStop={abort}
           running={running}
-          disabled={!convs.ready || exhausted}
+          disabled={!ready || exhausted}
+          variant={focusMode ? "focus" : expandedView ? "expanded" : "main"}
         />
-      </div>
+      </section>
+
+      {/* 窄屏与桌面均为内联堆叠/右栏，不使用浮层与遮罩 */}
+      {inspectorOpen && !focusMode && <SourceInspector />}
     </div>
   );
 }

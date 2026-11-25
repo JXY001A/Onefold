@@ -15,7 +15,29 @@ from .common import (
     Text,
     mapped_column,
     now,
+    sql_text,
 )
+
+
+class KnowledgeBase(Base):
+    """知识库作用域：public（公共）或 personal（每人一个）。"""
+
+    __tablename__ = "knowledge_bases"
+    __table_args__ = (
+        # 只允许一个公共库；owner_key=NULL 在普通唯一索引里不生效，必须用部分索引
+        Index("uq_kb_public", "kind", unique=True,
+              postgresql_where=sql_text("kind = 'public'")),
+        Index("uq_kb_personal_owner", "owner_key", unique=True,
+              postgresql_where=sql_text("kind = 'personal'")),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))       # public | personal
+    name: Mapped[str] = mapped_column(String(128))
+    owner_key: Mapped[str | None] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class Document(Base):
@@ -25,11 +47,14 @@ class Document(Base):
     __table_args__ = (
         # 文档列表和检索都按 owner + kind + status 过滤
         Index("ix_documents_owner_kind_status", "owner_key", "kind", "status"),
+        Index("ix_documents_kb_status", "kb_id", "status"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     # 兼容旧数据；新逻辑统一按 owner_key 做归属
     user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    # kb_id 是访问控制的真正来源；owner_key 继续作为冗余作用域键
+    kb_id: Mapped[str | None] = mapped_column(String(36), index=True)
     owner_key: Mapped[str | None] = mapped_column(String(80), index=True)
     conversation_id: Mapped[str | None] = mapped_column(String(36))
     filename: Mapped[str] = mapped_column(String(255))

@@ -27,6 +27,7 @@ def _build_rows(doc: Document, specs, vectors: list[list[float]]) -> list[Chunk]
     rows: list[Chunk] = []
     seen: dict[tuple[str, str], str] = {}
     parent_ids: dict[int, str] = {}
+    # 子块的 embedding 从头开始取
     child_vectors = iter(vectors)
 
     for spec in specs:

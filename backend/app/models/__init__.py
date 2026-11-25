@@ -11,7 +11,7 @@
 from .account import AuditLog, EmailCode, GuestSession, UsageDaily, User, Visit
 from .chat import Conversation, ConversationSummary, Message, Run, ToolCall
 from .common import Base, as_utc, now
-from .document import Artifact, Chunk, Document, DocumentJob, Skill
+from .document import Artifact, Chunk, Document, DocumentJob, KnowledgeBase, Skill
 from .memory import MemoryEvent, MemoryItem, MemoryJob, MemorySetting
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "Document",
     "DocumentJob",
     "EmailCode",
+    "KnowledgeBase",
     "GuestSession",
     "MemoryEvent",
     "MemoryItem",

@@ -22,6 +22,7 @@ from ..services.document_store import (
     retry_document,
 )
 from ..services.history import conversation_owned_by
+from ..services.knowledge_access import get_or_create_personal_kb
 from .deps import Principal, current_principal
 
 router = APIRouter()
@@ -37,6 +38,8 @@ def _limit(principal: Principal) -> int:
 def _serialize(doc: Document) -> dict:
     return {
         "id": doc.id,
+        "kb_id": doc.kb_id,
+        "scope": "temp" if doc.kind == "temp" else "personal",
         "filename": doc.filename,
         "size": doc.size,
         "kind": doc.kind,
@@ -72,9 +75,11 @@ async def upload(
             copyfileobj(file.file, target)
         if dest.stat().st_size > settings.max_upload_mb * 1024 * 1024:
             raise HTTPException(413, f"文件超过 {settings.max_upload_mb} MB")
+        kb = get_or_create_personal_kb(db, principal.owner_key)
         doc = create_document(
             db,
             document_id=doc_id,
+            kb_id=kb.id,
             owner_key=principal.owner_key,
             user_id=principal.user_id,
             conversation_id=conversation_id,

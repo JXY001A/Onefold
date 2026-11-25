@@ -41,7 +41,7 @@ def _markdown_blocks(text: str) -> list[ParsedBlock]:
         if content:
             blocks.append(ParsedBlock(content, heading_path=" / ".join(heading_stack)))
         buffer.clear()
-
+    # 按行切分
     for line in text.splitlines():
         # 代码块里的 # 不是标题，必须跳过
         if line.strip().startswith("```"):
@@ -51,7 +51,10 @@ def _markdown_blocks(text: str) -> list[ParsedBlock]:
         match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line) if not in_code else None
         if match:
             flush()
+            # 标题级别 = # 的数量
             level = len(match.group(1))
+            # heading_stack 里始终只放「当前标题的祖先链」：
+            # 相当于： del heading_stack[level - 1:]  heading_stack.append(title) # 砍掉第 level 个及之后， 压入当前标题
             heading_stack[level - 1 :] = [match.group(2).strip()]
         else:
             buffer.append(line)
@@ -79,6 +82,7 @@ def _pdf_blocks(path: Path) -> list[ParsedBlock]:
 
     blocks: list[ParsedBlock] = []
     for index, text in enumerate(pages, 1):
+        # 按空行分段
         for para in re.split(r"\n\s*\n", text):
             content = _clean(para)
             if content:

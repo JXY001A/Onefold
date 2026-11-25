@@ -1,5 +1,6 @@
 /** 后台接口封装：统一带 Cookie、统一解析后端 detail 错误。 */
 
+import { apiErrorText } from "./http";
 import type { Role } from "./roles";
 
 export type AdminUser = {
@@ -27,9 +28,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error((data as { detail?: string } | null)?.detail ?? `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(apiErrorText(data, res.status));
   return data as T;
 }
 

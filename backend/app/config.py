@@ -117,6 +117,7 @@ class Settings(BaseSettings):
     embed_base_url: str = "https://openrouter.ai/api/v1"
     embed_model: str = "baai/bge-m3"  # 以 OpenRouter 模型页实际 slug 为准
     embed_dim: int = 1024
+    # 批量嵌入参数
     embed_batch_size: int = 32
     embed_timeout_s: float = 30.0
     openrouter_api_key: str = ""      # 与 DeepSeek api_key 分开
@@ -125,6 +126,9 @@ class Settings(BaseSettings):
 
     # ── RAG / 历史压缩 ──────────────────────────────────────
     rag_enabled: bool = True
+    public_kb_guest_read: bool = True    # 访客是否可读公共知识库
+    rag_vector_max_distance: float = 0.60  # 向量距离上限，先粗筛
+    rag_rerank_min_score: float = 0.35     # rerank 最终阈值
     rag_top_k: int = 5                  # 最终注入的父块数
     rag_lexical_candidates: int = 100   # tsvector/pg_trgm 召回数
     rag_bm25_top: int = 50              # BM25 候选重排后保留数
@@ -147,7 +151,7 @@ class Settings(BaseSettings):
     # 游客累计免费轮次(一轮 = 一次提问到回答结束),用完引导注册
     guest_max_rounds: int = 20
     user_messages_per_day: int = 100  # 登录用户每日消息条数(待接入)
-    guest_docs_max: int = 1           # 访客可上传文档数(待接入)
+    guest_docs_max: int = 10           # 访客可上传文档数(待接入)
     user_docs_max: int = 20           # 登录用户可上传文档数(待接入)
 
     # ── 上下文预算(token)────────────────────────────────────

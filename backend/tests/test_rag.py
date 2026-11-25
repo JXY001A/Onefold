@@ -7,6 +7,7 @@ from app.rag import embed as rag_embed
 from app.rag.bm25 import bm25_rank
 from app.rag.chunk import chunk_blocks
 from app.rag.parse import parse_document
+from app.rag.query import Candidate
 from app.rag.rrf import rrf_fuse
 import app.rag.retrieve as rag_retrieve
 
@@ -79,6 +80,29 @@ def test_embed_falls_back_to_openrouter(monkeypatch):
     assert len(vectors[0]) == settings.embed_dim
     assert calls[0] != calls[1]
     assert "openrouter.ai" in calls[1]
+
+
+def test_retrieve_drops_all_candidates_below_rerank_threshold(monkeypatch):
+    candidate = Candidate(
+        id="child-1",
+        document_id="doc-1",
+        parent_id=None,
+        text="无关内容",
+        filename="doc.md",
+        page=1,
+        heading_path="",
+        kb_id="public",
+        scope="public",
+    )
+
+    monkeypatch.setattr(settings, "rerank_enabled", True)
+    monkeypatch.setattr(settings, "rag_rerank_min_score", 0.35)
+    monkeypatch.setattr(rag_retrieve, "lexical_candidates", lambda *_a, **_k: [candidate])
+    monkeypatch.setattr(rag_retrieve, "embed_texts", lambda *_a, **_k: [[0.0]])
+    monkeypatch.setattr(rag_retrieve, "vector_candidates", lambda *_a, **_k: [])
+    monkeypatch.setattr(rag_retrieve, "rerank", lambda *_a, **_k: [("child-1", 0.1)])
+
+    assert rag_retrieve.retrieve("红烧肉怎么做", "user:test", db=object()) == []
 
 
 def test_retrieve_returns_empty_when_retrieval_fails(monkeypatch):

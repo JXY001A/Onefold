@@ -24,6 +24,8 @@ class RetrievedChunk:
     filename: str = ""
     page: int | None = None
     heading_path: str = ""
+    kb_id: str = ""
+    scope: str = "personal"
     score: float = 0.0
     parent_id: str | None = None
 
@@ -69,6 +71,8 @@ def _expand(
                 filename=candidate.filename,
                 page=candidate.page,
                 heading_path=candidate.heading_path,
+                kb_id=candidate.kb_id,
+                scope=candidate.scope,
                 score=rank_scores.get(candidate.id, candidate.score),
                 parent_id=parent.id if parent else candidate.parent_id,
             )
@@ -92,6 +96,7 @@ def retrieve(
     own_session = db is None
     db = db or SessionLocal()
     try:
+        # 词法优先级高于向量
         lexical = lexical_candidates(
             db, query, owner_key, conversation_id, settings.rag_lexical_candidates
         )
@@ -103,6 +108,7 @@ def retrieve(
                 owner_key,
                 conversation_id,
                 settings.rag_vector_top,
+                settings.rag_vector_max_distance,
             )
         except Exception:
             # 查询 embedding 失败时只用词法，不让聊天整体失败
@@ -126,12 +132,18 @@ def retrieve(
         if settings.rerank_enabled and ordered:
             reranked = _rerank_ids(query, ordered[:20], top_k)
             if reranked:
-                rerank_scores = dict(reranked)
-                ordered = sorted(
-                    ordered,
-                    key=lambda item: rerank_scores.get(item.id, -1),
-                    reverse=True,
-                )
+                # rerank 是最终相关度判断：低于阈值的候选不再注入 RAG
+                rerank_scores = {
+                    item_id: score
+                    for item_id, score in reranked
+                    if score >= settings.rag_rerank_min_score
+                }
+                if not rerank_scores:
+                    return []
+                ordered = [item for item in ordered if item.id in rerank_scores]
+                ordered.sort(key=lambda item: rerank_scores[item.id], reverse=True)
+                # scores 原本只有 RRF 融合分；用 rerank 分覆盖被保留的候选，
+                # 下游 _expand 会把它写进 RetrievedChunk。
                 scores.update(rerank_scores)
 
         parent_map = load_parents(

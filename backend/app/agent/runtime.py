@@ -62,6 +62,8 @@ class AgentRuntime:
                 "filename": c.filename,
                 "page": c.page,
                 "heading_path": c.heading_path,
+                "kb_id": c.kb_id,
+                "scope": c.scope,
                 "text": c.text,
             }
             for c in retrieve(

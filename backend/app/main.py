@@ -14,6 +14,7 @@ from .api import (
     chat,
     conversations,
     documents,
+    knowledge,
     mcp,
     memory,
     skills,
@@ -47,6 +48,7 @@ app.include_router(conversations.router, prefix="/api", tags=["conversations"])
 app.include_router(memory.router, prefix="/api/memory", tags=["memory"])
 app.include_router(visits.router, prefix="/api/visits", tags=["visits"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"])
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(mcp.router, prefix="/mcp", tags=["mcp"])

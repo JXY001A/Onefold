@@ -66,8 +66,10 @@ def build_messages(
         messages.extend(_tail_turns(history))
 
     if rag_chunks:
+        labels = {"public": "公共知识库", "personal": "个人知识库", "temp": "临时文档"}
         refs = "\n\n".join(
-            f"[{c.get('filename', 'doc')} p.{c.get('page', '?')}"
+            f"[{labels.get(c.get('scope'), '个人知识库')} · "
+            f"{c.get('filename', 'doc')} p.{c.get('page', '?')}"
             f"{(' · ' + c['heading_path']) if c.get('heading_path') else ''}]\n"
             f"<document_content>\n{c.get('text', '')}\n</document_content>"
             for c in rag_chunks

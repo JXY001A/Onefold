@@ -11,6 +11,7 @@ from .parse import ParsedBlock
 
 # 子块之间保留少量上下文，避免一句话被切断后完全失去主语
 CHILD_OVERLAP = 80
+# 按句号/换行切分
 _SENTENCE = re.compile(r"(?<=[。！？!?；;.!?])\s*|\n+")
 
 
