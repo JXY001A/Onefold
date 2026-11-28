@@ -1,0 +1,116 @@
+/* 落地页（The Neural Universe）专属效果样式。
+   全部作用域限定在 .landing-root 内，禁止污染应用其他页面。
+   数值均来自设计稿，逐条对应 docs/design/landing/DESIGN_SYSTEM.md。 */
+
+.landing-root {
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+}
+
+/* 固定深色页：兜住 overscroll 边缘，避免亮色主题下露白 */
+body:has(.landing-root) {
+  background-color: #070b16;
+}
+
+/* 全屏环境底光（设计稿 .cosmic-radial-bg） */
+.landing-root .landing-ambient {
+  background:
+    radial-gradient(
+      ellipse 68% 54% at 72% 38%,
+      rgba(102, 143, 255, 0.14) 0%,
+      rgba(152, 117, 255, 0.08) 42%,
+      transparent 74%
+    ),
+    radial-gradient(ellipse 46% 42% at 22% 18%, rgba(98, 214, 232, 0.06) 0%, transparent 65%);
+}
+
+/* 内容卡片（设计稿 .cosmic-card） */
+.landing-root .cosmic-card {
+  background: linear-gradient(160deg, rgba(17, 26, 43, 0.88) 0%, rgba(11, 16, 32, 0.94) 100%);
+  border: 1px solid rgba(102, 143, 255, 0.16);
+  box-shadow:
+    0 20px 50px rgba(3, 6, 14, 0.55),
+    inset 0 1px 0 rgba(241, 245, 255, 0.05);
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+.landing-root .cosmic-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(152, 117, 255, 0.38);
+  box-shadow:
+    0 26px 60px rgba(5, 10, 24, 0.72),
+    0 0 36px rgba(102, 143, 255, 0.14),
+    inset 0 1px 0 rgba(241, 245, 255, 0.08);
+}
+
+/* 主按钮（设计稿 .btn-cosmic-primary） */
+.landing-root .btn-cosmic-primary {
+  background: linear-gradient(135deg, #3964e6 0%, #4e67f2 50%, #7a52e6 100%);
+  box-shadow:
+    0 8px 28px rgba(57, 100, 230, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.25s ease,
+    filter 0.25s ease;
+}
+
+.landing-root .btn-cosmic-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.07);
+  box-shadow:
+    0 12px 34px rgba(102, 143, 255, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.landing-root .btn-cosmic-primary:active {
+  transform: translateY(0);
+}
+
+/* 次按钮（设计稿 .btn-cosmic-secondary） */
+.landing-root .btn-cosmic-secondary {
+  background: rgba(17, 26, 43, 0.48);
+  border: 1px solid rgba(163, 174, 196, 0.22);
+  backdrop-filter: blur(8px);
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.2s ease;
+}
+
+.landing-root .btn-cosmic-secondary:hover {
+  background: rgba(102, 143, 255, 0.12);
+  border-color: rgba(102, 143, 255, 0.45);
+  transform: translateY(-1px);
+}
+
+/* 体积光晕呼吸（设计稿 .animate-pulse-slow） */
+@keyframes landing-pulse-slow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+  }
+}
+
+.landing-root .landing-pulse-slow {
+  animation: landing-pulse-slow 6s ease-in-out infinite;
+}
+
+/* 无障碍：系统开启「减弱动态效果」时停止呼吸光晕 */
+@media (prefers-reduced-motion: reduce) {
+  .landing-root .landing-pulse-slow {
+    animation: none;
+  }
+  .landing-root .cosmic-card,
+  .landing-root .btn-cosmic-primary,
+  .landing-root .btn-cosmic-secondary {
+    transition: none;
+  }
+}

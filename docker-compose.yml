@@ -31,6 +31,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # 文件心跳由 worker 进程每 10s 刷新；60s 未更新视为卡死
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/onefold-worker-alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<60 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   index-worker:
     build: .
@@ -44,6 +51,44 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/onefold-worker-alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<60 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # 可选监控（docker compose --profile obs up -d beszel）
+  # 仅绑定 127.0.0.1:8090；通过 SSH 隧道访问，不暴露公网
+  beszel:
+    image: henrygd/beszel:${BESZEL_VERSION:-0.21.1}
+    profiles: ["obs"]
+    restart: unless-stopped
+    environment:
+      APP_URL: https://${MONITOR_DOMAIN:-monitor.mindbase.ink}
+      # 首次启动自动创建管理员（仅全新数据卷生效；留空则走网页注册）
+      USER_EMAIL: ${BESZEL_ADMIN_EMAIL:-}
+      USER_PASSWORD: ${BESZEL_ADMIN_PASSWORD:-}
+    ports: ["127.0.0.1:8090:8090"]
+    volumes:
+      - beszel_data:/beszel_data
+      - beszel_socket:/beszel_socket
+
+  # 同机 agent：官方推荐 host 网络 + Unix socket，无需发布 45876
+  beszel-agent:
+    image: henrygd/beszel-agent:${BESZEL_VERSION:-0.21.1}
+    profiles: ["obs"]
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      HUB_URL: http://localhost:8090
+      KEY: ${BESZEL_AGENT_KEY:-}
+      TOKEN: ${BESZEL_AGENT_TOKEN:-}
+    volumes:
+      - beszel_agent_data:/var/lib/beszel-agent
+      - beszel_socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
   db:
     # pgvector 镜像基于 PostgreSQL 16，支持 vector/halfvec 类型
@@ -67,6 +112,8 @@ services:
     environment:
       # 不设时整个站点监听 :80（本地）；生产在 .env 写域名，Caddy 自动签 HTTPS
       ONEFOLD_DOMAIN: ${ONEFOLD_DOMAIN:-:80}
+      # 监控子域名：需 DNS 指向本机；未启用 obs 时访问返回 502，不影响主站
+      MONITOR_DOMAIN: ${MONITOR_DOMAIN:-monitor.mindbase.ink}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
@@ -75,3 +122,6 @@ services:
 volumes:
   caddy_data: {}
   pg_data: {}
+  beszel_data: {}
+  beszel_socket: {}
+  beszel_agent_data: {}

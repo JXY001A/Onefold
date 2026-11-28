@@ -36,6 +36,7 @@ export default function ChatInput({ value, onChange, onSend, onStop, running, di
           </Soon>
         </div>
 
+        {/* 去掉浏览器默认焦点描边：聚焦态由外层卡片的 focus-within 主色边框表达 */}
         <textarea
           value={value}
           rows={inline ? 1 : 2}
@@ -48,7 +49,7 @@ export default function ChatInput({ value, onChange, onSend, onStop, running, di
           }}
           disabled={running || disabled}
           placeholder={disabled ? "正在准备会话…" : "输入研究问题，或粘贴链接 / 上传文档…"}
-          className={`w-full resize-none border-0 bg-transparent p-0 text-light-on-surface placeholder:text-light-outline focus:ring-0 disabled:opacity-60 dark:text-dark-on-surface dark:placeholder:text-dark-outline ${
+          className={`w-full resize-none border-0 bg-transparent p-0 text-light-on-surface outline-none placeholder:text-light-outline focus:outline-none focus:ring-0 focus-visible:outline-none disabled:opacity-60 dark:text-dark-on-surface dark:placeholder:text-dark-outline ${
             inline ? "font-body text-body-sm" : "font-body text-body-md"
           }`}
         />
