@@ -11,12 +11,15 @@ import {
   type MemoryData,
   type MemoryItem,
 } from "../lib/memory";
+import { mockInactive } from "../lib/memoryMock";
 import { ensureSession } from "../lib/session";
 
 export function useMemory() {
   const toast = useToast();
   const [data, setData] = useState<MemoryData | null>(null);
   const [loading, setLoading] = useState(true);
+  // 单条激活状态是前端 mock（后端无此能力）：只存内存，刷新即还原
+  const [activeOverrides, setActiveOverrides] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     try {
@@ -54,21 +57,40 @@ export function useMemory() {
     void run(() => setMemoryEnabled(next), next ? "已开启记忆" : "已关闭记忆");
   };
 
-  const edit = (item: MemoryItem) => {
-    const next = window.prompt("编辑记忆内容（留空取消）", item.text);
-    if (next === null || !next.trim()) return;
-    void run(() => updateMemoryText(item.id, next.trim()), "已更新这条记忆");
+  /** 单条记忆的有效激活状态：mock 默认值之外可被用户临时切换（内存态）。 */
+  const isActive = (item: MemoryItem): boolean =>
+    activeOverrides[item.id] ?? !mockInactive(item.id);
+
+  const toggleActive = (item: MemoryItem) => {
+    const next = !isActive(item);
+    setActiveOverrides((prev) => ({ ...prev, [item.id]: next }));
+    toast.push("success", next ? "已激活该条记忆（示例操作，刷新还原）" : "已停用该条记忆（示例操作，刷新还原）");
   };
 
-  const remove = (item: MemoryItem) => {
-    if (!window.confirm("删除这条记忆？")) return;
-    void run(() => deleteMemory(item.id), "已删除这条记忆");
+  /** 编辑保存：返回是否成功，供弹窗决定是否关闭。 */
+  const saveText = useCallback(
+    async (id: string, text: string): Promise<boolean> => {
+      try {
+        await updateMemoryText(id, text.trim());
+        toast.push("success", "已更新这条记忆");
+        await load();
+        return true;
+      } catch (exc) {
+        toast.push("error", (exc as Error).message);
+        return false;
+      }
+    },
+    [load, toast],
+  );
+
+  // 删除/清空的确认弹窗由页面负责，这里只执行动作
+  const removeItem = (id: string) => {
+    void run(() => deleteMemory(id), "已删除这条记忆");
   };
 
-  const clearAll = () => {
-    if (!window.confirm("清空全部记忆？该操作不可撤销。")) return;
+  const clearAllItems = () => {
     void run(() => clearMemory(), "已清空全部记忆");
   };
 
-  return { data, loading, toggle, edit, remove, clearAll };
+  return { data, loading, toggle, saveText, removeItem, clearAllItems, isActive, toggleActive };
 }
