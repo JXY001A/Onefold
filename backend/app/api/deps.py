@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -11,29 +10,30 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..models import GuestSession, User, as_utc
+from ..roles import OwnerKind, Role, owner_key_for
 
-# 角色取值：guest（游客，不存 users 表）/ member / admin / superadmin
-# 权限比较一律用白名单（require_role），不做"等级大小"比较，避免漏改。
+# 角色取值见 app/roles.py 的 Role 枚举；权限比较一律用白名单（require_role），
+# 不做"等级大小"比较，避免漏改。
 
 
 @dataclass(frozen=True)
 class Principal:
     """一次请求的身份：登录用户或独立访客。"""
-    # 相当于 ts 中的联合字段，kind：'user' | 'guest';
-    kind: Literal["user", "guest"]
+    # 身份种类用 OwnerKind 枚举，与 owner_key 前缀共用同一词表
+    kind: OwnerKind
     id: str
     # 有效角色：游客固定为 guest，登录用户取自 users.role
-    role: str = "guest"
+    role: str = Role.GUEST
 
     # @property 是 Python 内置装饰器：作用是把方法包装成「属性」——调用时不写括号,看起来就像在读取一个数据字段,实际上背后执行的是方法。
     @property
     def lock_key(self) -> str:
         # 带上 kind 前缀，避免用户 id 与访客 id 意外碰撞
-        return f"{self.kind}:{self.id}"
+        return owner_key_for(self.kind, self.id)
 
     @property
     def user_id(self) -> str | None:
-        return self.id if self.kind == "user" else None
+        return self.id if self.kind == OwnerKind.USER else None
 
     @property
     def owner_key(self) -> str:
@@ -76,7 +76,7 @@ def current_principal(
             and int(issued_at) < as_utc(user.password_changed_at).timestamp()
         ):
             raise HTTPException(401, "密码已修改，请重新登录")
-        return Principal("user", user.id, user.role)
+        return Principal(OwnerKind.USER, user.id, user.role)
 
     # 访客身份只认 Cookie + 数据库记录；客户端无法伪造一个不存在的 id
     guest_id = request.cookies.get("guest_id")
@@ -85,13 +85,13 @@ def current_principal(
     if not guest or as_utc(guest.expires_at) <= datetime.now(timezone.utc):
         raise HTTPException(401, "访客会话已过期")
 
-    return Principal("guest", guest.id)
+    return Principal(OwnerKind.GUEST, guest.id)
 
 
 def require_role(*roles: str):
     """生成一个校验依赖：只允许指定角色访问。
 
-    用法：Depends(require_role("admin", "superadmin"))
+    用法：Depends(require_role(Role.ADMIN, Role.SUPERADMIN))
     无身份 → 401（未登录/访客过期）；有身份但角色不够 → 403。
     """
     allowed = set(roles)

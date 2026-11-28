@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from ..agent.runtime import AgentRuntime
 from ..config import settings
+from ..roles import Role
 from ..services.concurrency import GLOBAL_SEM, principal_lock
 from ..services.history import (
     conversation_owned_by,
@@ -67,7 +68,7 @@ async def chat(
     # 游客配额：一轮 = 一次「提问 → 回答结束」，即后建的一条 run；用完必须注册。
     # 放在建 run 之前计数，超限时不会多出一条 run。登录用户不限量。
     if (
-        principal.role == "guest"
+        principal.role == Role.GUEST
         and rounds_used(principal.owner_key) >= settings.guest_max_rounds
     ):
         raise HTTPException(

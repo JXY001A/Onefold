@@ -7,13 +7,14 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import KnowledgeBase, now
+from ..roles import is_admin as role_is_admin
 
 PUBLIC_KB_ID = "public"
 PUBLIC_OWNER_KEY = "public"
 
 
 def is_admin(principal) -> bool:
-    return principal.role in ("admin", "superadmin")
+    return role_is_admin(principal.role)
 
 
 def get_kb(db: Session, kb_id: str | None) -> KnowledgeBase | None:

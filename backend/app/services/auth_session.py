@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import User
+from ..roles import OwnerKind, Role
 from .quota import rounds_used
 
 
@@ -43,7 +44,7 @@ def user_payload(user: User) -> dict:
     """登录用户的 /me 结构，注册、登录、/me 三处复用。"""
     return {
         "id": user.id,
-        "kind": "user",
+        "kind": OwnerKind.USER,
         "role": user.role,
         "username": user.username,
         "email": user.email,
@@ -53,7 +54,7 @@ def user_payload(user: User) -> dict:
 
 def guest_quota(role: str, owner_key: str) -> dict | None:
     """访客返回已用/上限轮次；登录用户无限量，返回 None。"""
-    if role != "guest":
+    if role != Role.GUEST:
         return None
     return {
         "used": rounds_used(owner_key),
