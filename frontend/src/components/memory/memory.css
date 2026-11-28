@@ -1,0 +1,18 @@
+/* 记忆中心列表的细滚动条（数值来自设计稿 onefold_memory_center.html）。 */
+
+.memory-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.memory-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.memory-scroll::-webkit-scrollbar-thumb {
+  background: #1e2c47;
+  border-radius: 9999px;
+}
+
+.memory-scroll::-webkit-scrollbar-thumb:hover {
+  background: #243556;
+}

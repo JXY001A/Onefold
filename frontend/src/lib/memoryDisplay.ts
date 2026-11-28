@@ -8,3 +8,9 @@ export function kindLabel(kind: MemoryItem["kind"]): string {
 export function memoryDate(iso: string | null): string {
   return iso ? iso.slice(0, 10) : "未记录日期";
 }
+
+/** 设计稿时间格式：YYYY-MM-DD HH:mm（记忆中心列表/详情用）。 */
+export function memoryDateTime(iso: string | null): string {
+  if (!iso) return "未记录时间";
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+}

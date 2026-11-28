@@ -14,6 +14,8 @@ export type MemoryItem = {
   pinned: boolean;
   happened_at: string | null;
   updated_at: string | null;
+  /** 提取来源的 run（后端已返回；记忆中心用于「记忆来源」展示） */
+  source_run_id?: string | null;
 };
 
 export type MemoryData = {

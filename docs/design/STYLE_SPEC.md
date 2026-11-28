@@ -1,35 +1,36 @@
 # Onefold 视觉样式规范（STYLE_SPEC）
 
-> 取自四份设计稿共用的 tailwind.config（与现有 frontend/tailwind.config.js 完全一致，token 层无需改动）。
+> 亮色 token 取自四份设计稿共用的 tailwind.config；暗色自 2026-11-28 起整组替换为宇宙蓝系（用户确认，全局生效），
+> 逐值与依据见 `docs/design/memory-center/DESIGN_SYSTEM.md`，下表已同步为现行值。
 > 命名约定：下文 surface/container/outline 等均指 `light-*` / `dark:*` 成对 token。
 
 ## 1. 色板（完整 token 表）
 
 | token | 亮色 | 暗色 | 用途 |
 |---|---|---|---|
-| primary | #648B54 | #B6E3A1 | 主色：图标/圆点/竖线/描边激活/发送底 |
-| on-primary | #101315 | #101315 | 主色实心底上的文字 |
-| primary-container | #E4ECE0 | #1E2A1B | 徽章底/引用激活底/mark 高亮底 |
-| on-primary-container | #3B5930 | #B6E3A1 | 徽章文字；亮稿强调文字 |
-| secondary / on-secondary | #5C655E / #FFFFFF | #929BA1 / #101315 | 备用（稿中未直接使用） |
-| warning | #9A6B16 | #D6B36A | 「临时」强调（暗稿） |
-| on-warning | #FFFFFF | #101315 | — |
-| warning-container | #F5EFE2 | #282216 | 警示底 |
-| on-warning-container | #5C3D06 | #D6B36A | 亮稿「临时」强调文字 |
-| success / on-success | #648B54 / #101315 | #B6E3A1 / #101315 | 同主色 |
-| error / on-error | #B91C1C / #FFFFFF | #F87171 / #101315 | 错误 |
-| background | #F7F8F6 | #101315 | 页面/中央区/顶栏/输入区底 |
-| on-background | #202522 | #E9ECEE | 页面默认文字 |
-| surface | #FFFFFF | #171C1F | 卡片/按钮/输入卡底 |
-| surface-container-lowest | #F7F8F6 | #101315 | 同 background |
-| surface-container-low | #F1F3EF | #14191B | 左右栏底/表头底/段落卡底 |
-| surface-container | #F0F2EE | #1D2427 | 提问卡底/引用胶囊底/激活会话底(暗) |
-| surface-container-high | #E9EDE7 | #252D30 | hover 底/激活导航底/头像底(暗)/上下文面板底 |
-| surface-container-highest | #E1E6DF | #2E373B | 备用 |
-| on-surface | #202522 | #E9ECEE | 标题/正文/激活文字 |
-| on-surface-variant | #5C655E | #929BA1 | 次要正文/未激活导航/摘录 |
-| outline | #666F68 | #808B92 | 弱文字：时间/计数/组标题/placeholder |
-| outline-variant | #E5E9E3 | #2A3235 | 所有描边/分隔线 |
+| primary | #648B54 | #668FFF | 主色：图标/圆点/竖线/描边激活/发送底 |
+| on-primary | #101315 | #070B16 | 主色实心底上的文字 |
+| primary-container | #E4ECE0 | #1A274A | 徽章底/引用激活底/mark 高亮底 |
+| on-primary-container | #3B5930 | #9BB8FF | 徽章文字；亮稿强调文字 |
+| secondary / on-secondary | #5C655E / #FFFFFF | #9875FF / #070B16 | 备用（稿中未直接使用） |
+| warning | #9A6B16 | #E5B869 | 「临时」强调（暗稿） |
+| on-warning | #FFFFFF | #070B16 | — |
+| warning-container | #F5EFE2 | #262018 | 警示底 |
+| on-warning-container | #5C3D06 | #E5B869 | 亮稿「临时」强调文字 |
+| success / on-success | #648B54 / #101315 | #62D6E8 / #070B16 | 暗色为蓝青：开启态圆点/开关轨道 |
+| error / on-error | #B91C1C / #FFFFFF | #F87171 / #070B16 | 错误 |
+| background | #F7F8F6 | #070B16 | 页面/中央区/顶栏/输入区底 |
+| on-background | #202522 | #F1F5FF | 页面默认文字 |
+| surface | #FFFFFF | #111A2B | 卡片/按钮/输入卡底 |
+| surface-container-lowest | #F7F8F6 | #070B16 | 同 background |
+| surface-container-low | #F1F3EF | #0B1020 | 左右栏底/表头底/段落卡底 |
+| surface-container | #F0F2EE | #152036 | 提问卡底/引用胶囊底/激活会话底(暗) |
+| surface-container-high | #E9EDE7 | #1C2A45 | hover 底/激活导航底/头像底(暗)/上下文面板底 |
+| surface-container-highest | #E1E6DF | #243556 | 备用 |
+| on-surface | #202522 | #F1F5FF | 标题/正文/激活文字 |
+| on-surface-variant | #5C655E | #A3AEC4 | 次要正文/未激活导航/摘录 |
+| outline | #666F68 | #7C8CA8 | 弱文字：时间/计数/组标题/placeholder |
+| outline-variant | #E5E9E3 | #1E2C47 | 所有描边/分隔线 |
 
 ## 2. 字体与字号
 
