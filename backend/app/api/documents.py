@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..models import Document
+from ..roles import OwnerKind
 from ..services.document_store import (
     ALLOWED_SUFFIXES,
     collect_document,
@@ -32,7 +33,7 @@ TEMP_DAYS = 7
 
 
 def _limit(principal: Principal) -> int:
-    return settings.guest_docs_max if principal.kind == "guest" else settings.user_docs_max
+    return settings.guest_docs_max if principal.kind == OwnerKind.GUEST else settings.user_docs_max
 
 
 def _serialize(doc: Document) -> dict:

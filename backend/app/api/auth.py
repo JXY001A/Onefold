@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..models import User
+from ..roles import OwnerKind, Role
 from ..services import email_codes, guest_data, mail
 from ..services.auth_session import (
     client_ip,
@@ -88,7 +89,7 @@ def register(
         username=unique_username(db, body.username or body.email.split("@")[0]),
         email=body.email,
         password_hash=_pwd.hash(body.password),
-        role="member",
+        role=Role.MEMBER,
         status="active",
     )
     db.add(user)
@@ -154,10 +155,10 @@ def me(
     db: Session = Depends(get_db),
 ):
     """当前身份：角色 + 昵称 + 邮箱 + 游客配额，前端据此渲染菜单/守卫。"""
-    if principal.kind == "guest":
+    if principal.kind == OwnerKind.GUEST:
         return {
             "id": principal.id,
-            "kind": "guest",
+            "kind": OwnerKind.GUEST,
             "role": principal.role,
             "username": None,
             "email": None,
@@ -174,7 +175,7 @@ def me(
 @router.post("/guest")
 def guest(request: Request, response: Response, db: Session = Depends(get_db)):
     """确保浏览器有一个未过期的访客身份，并写进 HttpOnly Cookie。"""
-    return {"kind": "guest", "expires_in": guest_data.issue_guest(db, request, response)}
+    return {"kind": OwnerKind.GUEST, "expires_in": guest_data.issue_guest(db, request, response)}
 
 
 @router.post("/logout")

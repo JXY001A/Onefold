@@ -13,6 +13,7 @@ from sqlalchemy import func, select, text as sql_text, update
 from ..config import settings
 from ..db import SessionLocal
 from ..models import MemoryJob, now
+from ..roles import OwnerKind
 from .memory_scope import memory_enabled_for, owner_kind
 
 
@@ -34,7 +35,7 @@ def enqueue_memory_job(
     kind = owner_kind(owner_key)
     db = SessionLocal()
     try:
-        if kind == "guest":
+        if kind == OwnerKind.GUEST:
             # 访客每日次数上限：防止清 Cookie 后无限新建访客白吃模型调用
             today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             used = db.scalar(

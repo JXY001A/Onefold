@@ -15,13 +15,14 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..models import AuditLog, Message, Run, ToolCall, UsageDaily, User
+from ..roles import Role
 from .deps import Principal, require_role
 
 router = APIRouter()
 
 # 两个校验依赖：读接口要 admin 起，写角色要 superadmin
-require_admin = require_role("admin", "superadmin")
-require_superadmin = require_role("superadmin")
+require_admin = require_role(Role.ADMIN, Role.SUPERADMIN)
+require_superadmin = require_role(Role.SUPERADMIN)
 
 
 def _audit(
@@ -66,7 +67,7 @@ def list_users(
 
 
 class RoleIn(BaseModel):
-    role: Literal["member", "admin"]
+    role: Literal[Role.MEMBER, Role.ADMIN]
 
 
 # 仅超管：指定/撤销管理员
@@ -83,7 +84,7 @@ def change_role(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "user not found")
-    if user.role == "superadmin":
+    if user.role == Role.SUPERADMIN:
         raise HTTPException(400, "不能修改超管角色")
     before = user.role
     user.role = body.role
@@ -110,7 +111,7 @@ def change_status(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "user not found")
-    if user.role == "superadmin":
+    if user.role == Role.SUPERADMIN:
         raise HTTPException(400, "不能停用超管账号")
     before = user.status
     user.status = body.status

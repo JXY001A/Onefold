@@ -1,6 +1,7 @@
 {
   "version": "0.2.0",
   "configurations": [
+    
     {
       "name": "FastAPI: 调试启动 (8001)",
       "type": "debugpy",

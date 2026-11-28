@@ -3,11 +3,12 @@
 from ..config import settings
 from ..db import SessionLocal
 from ..models import MemorySetting, now
+from ..roles import GUEST_OWNER_PREFIX, OwnerKind
 
 
-def owner_kind(owner_key: str) -> str:
+def owner_kind(owner_key: str) -> OwnerKind:
     """从 user:<id> / guest:<id> 取身份类型。"""
-    return "guest" if owner_key.startswith("guest:") else "user"
+    return OwnerKind.GUEST if owner_key.startswith(GUEST_OWNER_PREFIX) else OwnerKind.USER
 
 
 def memory_enabled_for(owner_key: str) -> bool:

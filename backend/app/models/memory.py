@@ -19,6 +19,9 @@ from .common import (
 )
 
 
+from ..roles import OwnerKind
+
+
 class MemorySetting(Base):
     """记忆开关：登录用户与访客共用一张表，按 owner_key 区分。
 
@@ -59,7 +62,7 @@ class MemoryItem(Base):
         Index(
             "ix_memory_guest_ttl",
             "updated_at",
-            postgresql_where=sql_text("owner_kind = 'guest' AND status = 'active'"),
+            postgresql_where=sql_text(f"owner_kind = '{OwnerKind.GUEST.value}' AND status = 'active'"),
         ),
     )
 

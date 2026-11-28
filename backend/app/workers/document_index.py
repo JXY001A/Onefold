@@ -52,6 +52,11 @@ def process_job(job: dict[str, str]) -> None:
         finish_document_job(job["id"])
 
 
+# 数据库瞬时故障（如连接被管理员切断、数据库重启）后的退避秒数。
+# 轮询阶段出错必须退避重试，绝不能让线程退出（2026-11-28 线上事故）。
+RETRY_WAIT_S = 5.0
+
+
 def worker_loop(worker_id: str, stop_event: threading.Event) -> None:
     """单个 worker 线程：定期清理过期文档 → 抢任务 → 处理 → 没任务睡一会。
 
@@ -59,17 +64,22 @@ def worker_loop(worker_id: str, stop_event: threading.Event) -> None:
     """
     last_cleanup = 0.0
     while not stop_event.is_set():
-        if time.monotonic() - last_cleanup > CLEANUP_INTERVAL_S:
-            cleanup_expired_documents()
-            # 更新 last_cleanup 时机：确保至少间隔 CLEANUP_INTERVAL_S 调用一次
-            # 单调时钟，不可回溯
-            last_cleanup = time.monotonic()
+        try:
+            if time.monotonic() - last_cleanup > CLEANUP_INTERVAL_S:
+                cleanup_expired_documents()
+                # 更新 last_cleanup 时机：确保至少间隔 CLEANUP_INTERVAL_S 调用一次
+                # 单调时钟，不可回溯
+                last_cleanup = time.monotonic()
 
-        job = claim_document_job()
-        if job is None:
-            stop_event.wait(POLL_S)
-            continue
-        process_job(job)
+            job = claim_document_job()
+            if job is None:
+                stop_event.wait(POLL_S)
+                continue
+            process_job(job)
+        except Exception:  # noqa: BLE001
+            # 清理/领取阶段的数据库异常：退避后继续，不能打死线程
+            logger.exception("index worker loop error; retry in %ss", RETRY_WAIT_S)
+            stop_event.wait(RETRY_WAIT_S)
 
 
 def main() -> None:

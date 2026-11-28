@@ -99,34 +99,44 @@ def process_job(job: dict[str, Any]) -> None:
     finish_memory_job(job["id"], result_name, stats)
 
 
+# 数据库瞬时故障（如连接被管理员切断、数据库重启）后的退避秒数。
+# 领取任务阶段出错必须退避重试，绝不能让线程退出（2026-11-28 线上事故）。
+RETRY_WAIT_S = 5.0
+
+
 # 参数都在线程启动的时候传入的
 def worker_loop(worker_id: str, stop_event: threading.Event) -> None:
     """单个 worker 线程：抢任务 → 处理 → 没任务睡一会。"""
     # 没有收到程序终止信号，继续循环
     while not stop_event.is_set():
-        # 抢任务
-        job = claim_memory_job(worker_id)
-        if job is None:
-            # 没任务就 sleep 一下，避免 CPU 占用过高
-            stop_event.wait(settings.memory_poll_s)
-            continue
-        # 处理任务
         try:
-            process_job(job)
-        except MemorySchemaError as exc:
-            # 模型两次都输出错字段，重试同一 prompt 也不会好；直接 failed 供排查
-            logger.exception("memory job %s invalid schema", job.get("id"))
-            fail_memory_job(
-                job["id"],
-                f"{type(exc).__name__}: {exc}",
-                int(job.get("attempts") or 1),
-                force=True,
-                result="invalid_schema",
-            )
-        # 处理失败就重试
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("memory job %s failed", job.get("id"))
-            fail_memory_job(job["id"], f"{type(exc).__name__}: {exc}", int(job.get("attempts") or 1))
+            # 抢任务
+            job = claim_memory_job(worker_id)
+            if job is None:
+                # 没任务就 sleep 一下，避免 CPU 占用过高
+                stop_event.wait(settings.memory_poll_s)
+                continue
+            # 处理任务
+            try:
+                process_job(job)
+            except MemorySchemaError as exc:
+                # 模型两次都输出错字段，重试同一 prompt 也不会好；直接 failed 供排查
+                logger.exception("memory job %s invalid schema", job.get("id"))
+                fail_memory_job(
+                    job["id"],
+                    f"{type(exc).__name__}: {exc}",
+                    int(job.get("attempts") or 1),
+                    force=True,
+                    result="invalid_schema",
+                )
+            # 处理失败就重试
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("memory job %s failed", job.get("id"))
+                fail_memory_job(job["id"], f"{type(exc).__name__}: {exc}", int(job.get("attempts") or 1))
+        except Exception:  # noqa: BLE001
+            # 领取任务 / 失败落账阶段的数据库异常：退避后继续，不能打死线程
+            logger.exception("memory worker loop error; retry in %ss", RETRY_WAIT_S)
+            stop_event.wait(RETRY_WAIT_S)
 
 
 def main() -> None:

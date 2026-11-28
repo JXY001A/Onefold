@@ -104,3 +104,11 @@ Material Symbols Outlined：`wght,FILL@100..700,0..1&display=block`；
 - 表格 = surface 底圆角容器 + container-low 表头 + label-sm 表头字 + mono-sm 数值。
 - 现有 markdown.css 的 h1/h2/h3、p、table  margins/字号与设计稿不一致，需按本表重写。
 - 引用胶囊为内联元素，需 Markdown 内嵌组件（现后端无引用数据【U6】）。
+
+## 8. 用户消息气泡（用户变更，2026-11-28，覆盖 2.0 设计稿的通栏提问卡）
+
+- 普通对话的用户消息改为**右对齐全圆胶囊**：外层 `flex justify-end`，气泡 `max-w-[80%] rounded-full px-gutter-lg py-gutter-sm`。
+- 底色用主题淡色容器：亮色 `light-primary-container` + `light-on-primary-container` 文字；暗色 `dark-primary-container` + `dark-on-primary-container` 文字（用户反馈主色过深后调整为柔和版，2026-11-28）。
+- 专注阅读模式的「研究问题」上下文行、检查器展开态的隐藏逻辑保持不变。
+- 目的：明确区分用户与助手（助手仍为无气泡的编辑式排版）。
+- 依据：用户以聊天界面参考图指定。

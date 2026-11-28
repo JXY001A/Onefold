@@ -16,6 +16,9 @@ from .common import (
 )
 
 
+from ..roles import Role
+
+
 class User(Base):
     """登录用户。role 决定权限：
 
@@ -35,7 +38,7 @@ class User(Base):
     # 唯一但可空：早期账号没有邮箱，PG 允许多个 NULL 并存
     email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(16), default="member")
+    role: Mapped[str] = mapped_column(String(16), default=Role.MEMBER)
     status: Mapped[str] = mapped_column(String(16), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     # 改密时间：比这更早签发的 JWT 一律作废（deps.current_principal 校验 iat）

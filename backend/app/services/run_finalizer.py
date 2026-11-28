@@ -8,6 +8,7 @@ import logging
 import re
 
 from ..config import settings
+from ..roles import Role
 from .history import finish_run, save_transcript
 from .history_compaction import schedule_compaction
 from .memory import enqueue_memory_job, memory_enabled_for
@@ -47,9 +48,11 @@ def finalize_run(
     if status != "done" or not conversation_id:
         return
 
-    # 记忆提取只登记任务，绝不阻塞本轮回答；失败也不影响聊天
-    guest_ready = role == "guest" and rounds_used(owner_key) >= settings.guest_memory_min_rounds
-    if role == "user" or guest_ready:
+    # 记忆提取只登记任务，绝不阻塞本轮回答；失败也不影响聊天。
+    # 所有登录角色（Role 枚举中的 member/admin/superadmin）都登记；
+    # 访客需达到最低轮次才提取。
+    guest_ready = role == Role.GUEST and rounds_used(owner_key) >= settings.guest_memory_min_rounds
+    if role != Role.GUEST or guest_ready:
         try:
             if memory_enabled_for(owner_key):
                 enqueue_memory_job(

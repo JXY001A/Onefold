@@ -1,11 +1,15 @@
 """记忆提取 worker：任务队列抢单、模型返回结构兼容、schema 修复重试、证据校验后落库。"""
 
+import threading
 from uuid import uuid4
+
+from sqlalchemy.exc import OperationalError
 
 from app.config import settings
 from app.db import SessionLocal
 from app.models import MemoryJob, now
 from app.services.memory import claim_memory_job, finish_memory_job, list_memory
+from app.workers import document_index as index_worker
 from app.workers import memory as worker
 from app.workers import memory_extract
 from tests.conftest import cleanup_owner
@@ -143,3 +147,57 @@ def test_worker_process_job_with_mocked_llm(monkeypatch):
         assert cards[0]["text"] == "偏好：先给结论"
     finally:
         cleanup_owner(owner)
+
+def test_memory_loop_survives_db_failure(monkeypatch):
+    """领取任务时的数据库异常（如 pg AdminShutdown）不能让 worker 线程退出。
+
+    2026-11-28 线上事故：claim 在 try 之外，DB 重启把两个线程打死，
+    进程因心跳线程仍在而被误判健康，任务永久停摆。此测试锁定该行为。
+    """
+    calls = {"n": 0}
+    stop = threading.Event()
+
+    def flaky_claim(worker_id: str):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OperationalError(
+                "SELECT 1", {}, Exception("terminating connection due to administrator command")
+            )
+        stop.set()
+        return None
+
+    monkeypatch.setattr(worker, "claim_memory_job", flaky_claim)
+    monkeypatch.setattr(worker, "RETRY_WAIT_S", 0.01, raising=False)
+
+    thread = threading.Thread(target=worker.worker_loop, args=("test-loop", stop), daemon=True)
+    thread.start()
+    thread.join(timeout=3)
+
+    assert not thread.is_alive(), "数据库异常后线程应继续运行而不是退出"
+    assert calls["n"] >= 2, "第一次领取抛错后应退避重试，而不是结束循环"
+
+
+def test_index_loop_survives_db_failure(monkeypatch):
+    """索引 worker 的轮询循环同样必须容忍数据库异常。"""
+    calls = {"n": 0}
+    stop = threading.Event()
+
+    def flaky_claim():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OperationalError(
+                "SELECT 1", {}, Exception("terminating connection due to administrator command")
+            )
+        stop.set()
+        return None
+
+    monkeypatch.setattr(index_worker, "cleanup_expired_documents", lambda: None)
+    monkeypatch.setattr(index_worker, "claim_document_job", flaky_claim)
+    monkeypatch.setattr(index_worker, "RETRY_WAIT_S", 0.01, raising=False)
+
+    thread = threading.Thread(target=index_worker.worker_loop, args=("test-loop", stop), daemon=True)
+    thread.start()
+    thread.join(timeout=3)
+
+    assert not thread.is_alive(), "数据库异常后线程应继续运行而不是退出"
+    assert calls["n"] >= 2, "第一次领取抛错后应退避重试，而不是结束循环"

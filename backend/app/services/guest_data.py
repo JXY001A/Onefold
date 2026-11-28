@@ -13,6 +13,7 @@ from fastapi import Request, Response
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..roles import OwnerKind, owner_key_for
 from ..models import (
     Conversation,
     ConversationSummary,
@@ -83,13 +84,13 @@ def adopt_guest(db: Session, guest_id: str, user_id: str) -> dict[str, int]:
     memory_items 的 (owner_key, key) 活跃唯一索引，也不会与开关表主键冲突。
     runs.user_id 不在此处理：访客的 Run 本来存的就是 None，无需改写。
     """
-    old, new = f"guest:{guest_id}", f"user:{user_id}"
+    old, new = owner_key_for(OwnerKind.GUEST, guest_id), owner_key_for(OwnerKind.USER, user_id)
     return {
         "conversations": _reassign(db, Conversation, old, new),
         # 访问记录同时改 kind，画像才能跨身份算在登录用户名下
         "visits": db.query(Visit)
         .filter(Visit.owner_key == old)
-        .update({Visit.owner_key: new, Visit.kind: "user"}, synchronize_session=False),
+        .update({Visit.owner_key: new, Visit.kind: OwnerKind.USER}, synchronize_session=False),
         "memory_items": _reassign(db, MemoryItem, old, new),
         "memory_jobs": _reassign(db, MemoryJob, old, new),
         "memory_events": _reassign(db, MemoryEvent, old, new),

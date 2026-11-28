@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..models import Document
+from ..roles import Role
 from ..services.document_store import (
     ALLOWED_SUFFIXES,
     create_document,
@@ -30,7 +31,7 @@ from .deps import Principal, current_principal, require_role
 router = APIRouter()
 UPLOAD_DIR = settings.data_dir / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-require_admin = require_role("admin", "superadmin")
+require_admin = require_role(Role.ADMIN, Role.SUPERADMIN)
 
 
 def _serialize(doc: Document) -> dict:
