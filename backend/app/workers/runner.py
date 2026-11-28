@@ -5,9 +5,11 @@
 """
 
 import logging
+import os
 import signal
 import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 from ..db import init_db
@@ -16,6 +18,26 @@ logger = logging.getLogger("onefold.worker")
 
 # 单个 worker 线程的签名：线程名 + 停止信号
 WorkerLoop = Callable[[str, threading.Event], None]
+
+# 健康检查心跳：Docker healthcheck 只看这个文件的修改时间。
+# 独立线程写入，即使任务循环卡住也能暴露问题；路径可按需用环境变量覆盖。
+HEARTBEAT_INTERVAL_S = 10.0
+HEARTBEAT_FILE = Path(os.environ.get("WORKER_HEALTH_FILE", "/tmp/onefold-worker-alive"))
+
+
+def _touch_health() -> None:
+    """更新心跳文件；失败只告警，不能影响任务处理。"""
+    try:
+        HEARTBEAT_FILE.touch()
+    except OSError:
+        logger.warning("worker heartbeat write failed: %s", HEARTBEAT_FILE)
+
+
+def _heartbeat_loop(stop_event: threading.Event) -> None:
+    """每 10 秒刷新一次心跳，收到停止信号后退出。"""
+    _touch_health()
+    while not stop_event.wait(HEARTBEAT_INTERVAL_S):
+        _touch_health()
 
 
 def run_worker_process(
@@ -44,6 +66,14 @@ def run_worker_process(
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+
+    # 心跳线程与任务线程分离：任务卡住时 healthcheck 仍能发现
+    threading.Thread(
+        target=_heartbeat_loop,
+        args=(stop_event,),
+        daemon=True,
+        name=f"{name}-heartbeat",
+    ).start()
 
     # daemon=True：主线程退出时不阻塞进程结束
     threads = [

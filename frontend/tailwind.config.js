@@ -59,6 +59,19 @@ export default {
         "dark-on-surface-variant": "#929BA1",
         "dark-outline": "#808B92",
         "dark-outline-variant": "#2A3235",
+        // 落地页（The Neural Universe）独立色组：仅 / 落地页使用，不参与双主题，勿在其他页面引用
+        cosmic: {
+          bg: "#070B16",
+          surface: "#0B1020",
+          card: "#111A2B",
+          primary: "#668FFF",
+          electric: "#568BFF",
+          purple: "#9875FF",
+          cyan: "#62D6E8",
+          text: "#F1F5FF",
+          secondary: "#A3AEC4",
+          muted: "#7C8CA8",
+        },
       },
       borderRadius: {
         sm: "6px",

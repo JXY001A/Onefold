@@ -21,6 +21,15 @@ set -euo pipefail
 # 都能正确定位。
 cd "$(dirname "$0")"
 
+# 从 .env 读取可选监控配置。
+# 不直接 source .env：密码/令牌可能含 shell 特殊字符，避免被解释执行。
+env_value() {
+  grep -E "^$1=" .env 2>/dev/null | tail -n 1 | cut -d= -f2-
+}
+OBS_ENABLED=${ENABLE_OBS:-$(env_value ENABLE_OBS)}
+OBS_AGENT_KEY=${BESZEL_AGENT_KEY:-$(env_value BESZEL_AGENT_KEY)}
+OBS_AGENT_TOKEN=${BESZEL_AGENT_TOKEN:-$(env_value BESZEL_AGENT_TOKEN)}
+
 # ---------------------------------------------------------------------------
 # 1. 确定本次要部署的版本
 # ---------------------------------------------------------------------------
@@ -132,6 +141,13 @@ fi
 # 这一步不写 || true —— 容器起不来就必须中断，继续探活没有意义。
 docker compose up -d
 
+# Caddyfile 以 bind mount 方式挂载，up -d 不会因文件内容变化自动重载；
+# 这里显式 reload，让新增的监控子域名生效。失败时退回重启，仍不影响主站探活。
+if ! docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+  echo "warn: caddy reload failed, restarting caddy"
+  docker compose restart caddy || true
+fi
+
 # ---------------------------------------------------------------------------
 # 6. 探活：最多等待 60 秒（30 次 × 2 秒）
 # ---------------------------------------------------------------------------
@@ -141,6 +157,21 @@ for _ in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then
     # 探活通过：清理无 tag 的悬空镜像（旧版本有 tag，不会被删）。
     docker image prune -f >/dev/null 2>&1 || true
+
+    # 可选监控：失败只告警，绝不把一次成功的主站发布判成失败。
+    if [ "${OBS_ENABLED:-false}" = "true" ]; then
+      echo "==> start observability (profile obs)"
+      if ! docker compose --profile obs up -d beszel; then
+        echo "warn: beszel hub failed to start; main deploy is unaffected"
+      elif [ -n "${OBS_AGENT_TOKEN:-}" ] || [ -n "${OBS_AGENT_KEY:-}" ]; then
+        if ! docker compose --profile obs up -d beszel-agent; then
+          echo "warn: beszel agent failed to start; main deploy is unaffected"
+        fi
+      else
+        echo "obs: no agent key/token yet; open the monitor URL, create a universal token, then redeploy"
+      fi
+    fi
+
     echo "deploy ok: ${TAG:-latest}"
     exit 0
   fi

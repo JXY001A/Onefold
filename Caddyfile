@@ -9,3 +9,10 @@
         flush_interval -1
     }
 }
+
+# 可选监控子域名：先在 DNS 把 monitor 指向本机，并启用 obs profile。
+# 未启用 Beszel 时访问会 502，不影响主站。
+{$MONITOR_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy beszel:8090
+}
