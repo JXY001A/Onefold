@@ -29,8 +29,13 @@ export default function MessageItem({ message, focus = false, expanded = false }
       );
     }
     return (
-      <div className="rounded-md border border-light-outline-variant bg-light-surface-container p-gutter-md dark:border-dark-outline-variant dark:bg-dark-surface-container">
-        <p className="whitespace-pre-wrap font-body text-body-md text-light-on-surface dark:text-dark-on-surface">{message.content}</p>
+      // 用户消息：右对齐胶囊气泡，主题淡色容器（primary-container）底，柔和区别于助手排版
+      <div className="flex justify-end">
+        <div className="max-w-[80%] rounded-full bg-light-primary-container px-gutter-lg py-gutter-sm dark:bg-dark-primary-container">
+          <p className="whitespace-pre-wrap font-body text-body-md text-light-on-primary-container dark:text-dark-on-primary-container">
+            {message.content}
+          </p>
+        </div>
       </div>
     );
   }
